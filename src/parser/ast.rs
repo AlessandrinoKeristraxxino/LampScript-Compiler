@@ -1,9 +1,8 @@
 // ast.rs
 
-use std::mem::discriminant;
-
 #![allow(dead_code)]
 
+use std::mem::discriminant;
 use crate::lexer::token::*;
 
 pub enum Expr {
