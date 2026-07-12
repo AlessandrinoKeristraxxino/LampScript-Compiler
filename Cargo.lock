@@ -3,5 +3,5 @@
 version = 4
 
 [[package]]
-name = "LampScript-Compiler"
+name = "las"
 version = "0.1.0"
