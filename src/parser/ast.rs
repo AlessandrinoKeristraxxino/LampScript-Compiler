@@ -141,6 +141,7 @@ impl Parser {
                 }
             },
             TokenType::Print => {
+                self.advance();
                 self.expect_token(TokenType::LParen);
 
                 let expr = self.parse_expression();
@@ -151,6 +152,7 @@ impl Parser {
                 Some(Stmt::Print(expr))
             },
             TokenType::Println => {
+                self.advance();
                 self.expect_token(TokenType::LParen);
 
                 let expr = self.parse_expression();

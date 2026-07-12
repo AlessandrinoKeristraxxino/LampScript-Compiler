@@ -53,7 +53,6 @@ impl Codegen {
                 );
                 self.code.push_str(&instruction);
             }
-            _ => {}
         }
     }
 
@@ -88,7 +87,7 @@ impl Codegen {
             main:\n\
                 push rbp\n\
                 mov rbp, rsp\n\
-                sub rsp, 256"
+                sub rsp, 256\n"
         );
         self.code.push_str(&first_code);
 

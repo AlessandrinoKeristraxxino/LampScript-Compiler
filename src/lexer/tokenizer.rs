@@ -191,6 +191,26 @@ impl Lexer {
         }
     }
 
+    fn check_number(&mut self, tokens: &mut Vec<Token>) {
+        let mut number = String::new();
+        let start_column = self.column;
+
+        while self.position < self.input.len() && self.input[self.position].is_numeric() {
+            number.push(self.input[self.position]);
+            self.position += 1;
+            self.column += 1;
+        }
+
+        if let Ok(value) = number.parse::<u64>() {
+            tokens.push(Token {
+                token_type: TokenType::Value(value),
+                line: self.line,
+                column: start_column,
+                value: Some(number)
+            });
+        }
+    }
+
     pub fn lexing(&mut self) -> Vec<Token> {
         let mut tokens: Vec<Token> = Vec::new();
 
@@ -203,6 +223,8 @@ impl Lexer {
 
             if self.input[self.position].is_alphabetic() {
                 self.check_keyword(&mut tokens);
+            } else if self.input[self.position].is_numeric() {
+                self.check_number(&mut tokens);
             } else {
                 self.check_punctuation(&mut tokens);
             }
