@@ -1,3 +1,3 @@
 // codegen/mod.rs
 
-mod codegen;
+pub mod codegen;

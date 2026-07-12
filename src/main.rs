@@ -11,9 +11,9 @@
  */
 
 use std::fs;
-use crate::lexer::Lexer;
-use crate::parser::Parser;
-use crate::codegen::Codegen;
+use crate::lexer::tokenizer::Lexer;
+use crate::parser::ast::Parser;
+use crate::codegen::codegen::Codegen;
 
 mod lexer;
 mod parser;

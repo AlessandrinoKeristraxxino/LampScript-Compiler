@@ -1,7 +1,7 @@
 // codegen.rs
 
 use std::collections::HashMap;
-use crate::ast::{Expr, Stmt, Program};
+use crate::parser::ast::{Expr, Stmt, Program};
 
 pub struct Codegen {
     pub code: String,

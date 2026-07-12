@@ -1,9 +1,8 @@
 // ast.rs
 
-use std::mem::discriminant;
-
 #![allow(dead_code)]
 
+use std::mem::discriminant;
 use crate::lexer::token::*;
 
 pub enum Expr {
@@ -41,7 +40,7 @@ impl Parser {
         if self.position >= self.tokens.len() {
             return &self.tokens[self.tokens.len() - 1];
         }
-
+        
         &self.tokens[self.position]
     }
 
