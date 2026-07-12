@@ -1,8 +1,7 @@
 // ast.rs
 
 #![allow(dead_code)]
-
-#![allow(dead_code)]
+#![warn(unreachable_patterns)]
 
 use std::mem::discriminant;
 use crate::lexer::token::*;
@@ -31,19 +30,28 @@ pub struct Parser {
 }
 
 impl Parser {
-    fn new(tokens: Vec<Token>) -> Self {
+    pub fn new(tokens: Vec<Token>) -> Self {
         Self {
             tokens,
             position: 0,
         }
     }
 
-    fn get_current_token(&self) -> &Token {
+    fn get_current_token(&self) -> Token {
         if self.position >= self.tokens.len() {
-            return &self.tokens[self.tokens.len() - 1];
+            if let Some(token) = self.tokens.last() {
+                return token.clone();
+            }
+
+            return Token {
+                token_type: TokenType::Value(0),
+                line: 0,
+                column: 0,
+                value: None,
+            };
         }
-        
-        &self.tokens[self.position]
+
+        self.tokens[self.position].clone()
     }
 
     fn advance(&mut self) {
@@ -94,17 +102,17 @@ impl Parser {
     fn parse_statement(&mut self) -> Option<Stmt> {
         let current_token = self.get_current_token();
 
-        match current_token {
-            &Token { token_type: TokenType::Let, .. } => {
+        match &current_token.token_type {
+            TokenType::Let => {
                 self.advance();
                 let current_token = self.get_current_token();
 
-                if let &Token { token_type: TokenType::Identifier(ref name), .. } = current_token {
+                if let TokenType::Identifier(name) = &current_token.token_type {
                     self.advance();
                     let variable_name = name.clone();
                     let current_token = self.get_current_token();
 
-                    if let &Token { token_type: TokenType::Assign, .. } = current_token {
+                    if let TokenType::Assign = &current_token.token_type {
                         self.advance();
 
                         let def_value = self.parse_expression();
@@ -132,7 +140,7 @@ impl Parser {
                     );
                 }
             },
-            &Token { token_type: TokenType::Print, .. } => {
+            TokenType::Print => {
                 self.expect_token(TokenType::LParen);
 
                 let expr = self.parse_expression();
@@ -142,7 +150,7 @@ impl Parser {
 
                 Some(Stmt::Print(expr))
             },
-            &Token { token_type: TokenType::Println, .. } => {
+            TokenType::Println => {
                 self.expect_token(TokenType::LParen);
 
                 let expr = self.parse_expression();

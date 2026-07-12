@@ -21,9 +21,11 @@ mod codegen;
 
 fn main() {
     let source_code = fs::read_to_string("program.las")
-        .expect("It's impossible to read the source file");
+        .expect("It's impossible to read the source file")
+        .chars()
+        .collect();
 
-    let mut lexer = Lexer::new(&source_code);
+    let mut lexer = Lexer::new(source_code);
     let tokens = lexer.lexing();
 
     let mut parser = Parser::new(tokens);

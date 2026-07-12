@@ -3,5 +3,5 @@
 version = 4
 
 [[package]]
-name = "visual_novel"
+name = "LampScript-Compiler"
 version = "0.1.0"

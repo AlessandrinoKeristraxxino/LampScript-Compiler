@@ -1,7 +1,7 @@
 // codegen.rs
 
 use std::collections::HashMap;
-use crate::parser::ast::{Expr, Stmt, Program};
+use crate::parser::ast::{Expr, Stmt};
 
 pub struct Codegen {
     pub code: String,
@@ -74,7 +74,7 @@ impl Codegen {
         }
     }
 
-    fn compile(&mut self, statements: &Vec<Stmt>) {
+    pub fn compile(&mut self, statements: &[Stmt]) {
         let first_code = format!("
             global main\n\
             extern ExitProcess\n\
@@ -92,7 +92,7 @@ impl Codegen {
         );
         self.code.push_str(&first_code);
 
-        for stmt in &statements {
+        for stmt in statements {
             self.gen_stmt(stmt);
         }
 

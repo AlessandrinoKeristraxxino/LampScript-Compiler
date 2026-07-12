@@ -25,7 +25,7 @@ pub enum TokenType {
     Value(u64),
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Token {
     pub token_type: TokenType,
     pub line: usize,
