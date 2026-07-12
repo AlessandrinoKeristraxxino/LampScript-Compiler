@@ -4,7 +4,7 @@ use std::collections::HashMap;
 use crate::ast::{Expr, Stmt, Program};
 
 pub struct Codegen {
-    code: String,
+    pub code: String,
     variables: HashMap<String, i32>,
     stack_offset: i32,
 }
@@ -29,6 +29,30 @@ impl Codegen {
                 let instruction = format!("    mov [rbp - {}], rax\n", self.stack_offset);
                 self.code.push_str(&instruction);
             },
+            Stmt::Print(expr) => {
+                self.gen_expr(expr);
+
+                let instruction = format!("
+                    mov rdx, rax\n\
+                    lea rcx, [rel format_num]\n\
+                    sub rsp, 32\n\
+                    call printf\n\
+                    add rsp, 32"
+                );
+                self.code.push_str(&instruction);
+            },
+            Stmt::Println(expr) => {
+                self.gen_expr(expr);
+
+                let instruction = format!("
+                    mov rdx, rax\n\
+                    lea rcx, [rel format_nl]\n\
+                    sub rsp, 32\n\
+                    call printf\n\
+                    add rsp, 32"
+                );
+                self.code.push_str(&instruction);
+            }
             _ => {}
         }
     }
@@ -48,5 +72,34 @@ impl Codegen {
                 }
             }
         }
+    }
+
+    fn compile(&mut self, statements: &Vec<Stmt>) {
+        let first_code = format!("
+            global main\n\
+            extern ExitProcess\n\
+            extern printf\n\
+            \n
+            section .data\n\
+                format_num db \"%llu\", 0\n\
+                format_nl  db \"%llu\", 10, 0\n\
+            \n
+            section .text\n\
+            main:\n\
+                push rbp\n\
+                mov rbp, rsp\n\
+                sub rsp, 256"
+        );
+        self.code.push_str(&first_code);
+
+        for stmt in &statements {
+            self.gen_stmt(stmt);
+        }
+
+        let last_code = format!("
+            mov rcx, 0\n\
+            call ExitProcess"
+        );
+        self.code.push_str(&last_code);
     }
 }
