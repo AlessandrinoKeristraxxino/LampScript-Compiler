@@ -2,6 +2,8 @@
 
 #![allow(dead_code)]
 
+#![allow(dead_code)]
+
 use std::mem::discriminant;
 use crate::lexer::token::*;
 
