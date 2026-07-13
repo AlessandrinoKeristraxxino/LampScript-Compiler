@@ -4,23 +4,31 @@
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum TokenType {
-    // funzioni
+    // macros
     Print,
     Println,
     
     // variabili
     Let,
     Identifier(String),
-    Content(String), // per le doublequotes
+    Content(String), // for doublequotes
     Mod,
     
-    // punteggiatura
+    // punctuation
     Semicolon,
     Colon,
     DoubleQuote,
-    Assign,
+    Equal,
     LParen,
     RParen,
+
+    // operators
+    Plus,
+    Minus,
+    Asterisk,
+    Slash,
+    DoubleAsterisk,
+    DoubleSlash,
 
     Value(u64),
 }

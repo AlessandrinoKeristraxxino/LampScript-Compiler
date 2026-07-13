@@ -112,7 +112,7 @@ impl Parser {
                     let variable_name = name.clone();
                     let current_token = self.get_current_token();
 
-                    if let TokenType::Assign = &current_token.token_type {
+                    if let TokenType::Equal = &current_token.token_type {
                         self.advance();
 
                         let def_value = self.parse_expression();
@@ -125,8 +125,8 @@ impl Parser {
                         panic!("
                             Syntax Error at line {}, column {}. \n\
                             Unexpected Token {:?} \n\
-                            Expected Assign `let variablename = value` (TokenType::Assign) \n\
-                                                                          + <- here",
+                            Expected Equal `let variablename = value` (TokenType::Equal) \n\
+                                                             + <- here",
                             current_token.line, current_token.column, current_token    
                         );
                     }

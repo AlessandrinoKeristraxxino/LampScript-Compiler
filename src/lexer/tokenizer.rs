@@ -92,7 +92,7 @@ impl Lexer {
             },
             '=' => {
                 tokens.push(Token {
-                    token_type: TokenType::Assign,
+                    token_type: TokenType::Equal,
                     line: self.line,
                     column: self.column,
                     value: None
@@ -122,6 +122,73 @@ impl Lexer {
 
                 self.position += 1;
                 self.column += 1;
+            },
+            '+' => {
+                tokens.push(Token {
+                    token_type: TokenType::Plus,
+                    line: self.line,
+                    column: self.column,
+                    value: None
+                });
+
+                self.position += 1;
+                self.column += 1;
+            },
+            '-' => {
+                tokens.push(Token {
+                    token_type: TokenType::Minus,
+                    line: self.line,
+                    column: self.column,
+                    value: None
+                });
+
+                self.position += 1;
+                self.column += 1;
+            },
+            '*' => {
+                if self.position + 1 < self.input.len() && self.input[self.position + 1] == '*' {
+                    tokens.push(Token {
+                        token_type: TokenType::DoubleAsterisk,
+                        line: self.line,
+                        column: self.column,
+                        value: None
+                    });
+        
+                    self.position += 2;
+                    self.column += 2;
+                } else {
+                    tokens.push(Token {
+                        token_type: TokenType::Asterisk,
+                        line: self.line,
+                        column: self.column,
+                        value: None
+                    });
+                    self.position += 1;
+                    self.column += 1;
+                }
+            },
+            '/' => {
+                if self.position + 1 < self.input.len() && self.input[self.position + 1] == '/' {
+                    tokens.push(Token {
+                        token_type: TokenType::DoubleSlash,
+                        line: self.line,
+                        column: self.column,
+                        value: None
+                    });
+
+                    self.position += 2;
+                    self.column += 2;
+                } else {
+                    tokens.push(Token {
+                        token_type: TokenType::Slash,
+                        line: self.line,
+                        column: self.column,
+                        value: None
+                    });
+
+                    self.position += 1;
+                    self.column += 1;
+                }
             },
             _ => {
                 self.position += 1;
