@@ -251,23 +251,36 @@ impl Codegen {
                     }
                 }
                 
+                let mut final_args = Vec::new();
                 let mut n_args = 0;
                 let mut final_fmt = String::new();
                 let mut chars = format_str.chars().peekable();
                 while let Some(c) = chars.next() {
-                    if c == '{' && chars.peek() == Some(&'}') {
-                        chars.next(); // consume '}'
-                        
-                        let arg_type = if n_args < rest_args.len() {
-                            match &rest_args[n_args] {
-                                Expr::StringLiteral(_) => Some(Type::String),
-                                Expr::Number(n) => if n.fract() == 0.0 { Some(Type::U64) } else { Some(Type::F64) },
-                                Expr::Identifier(name) => self.get_var(name).and_then(|v| v.var_type.clone()),
-                                Expr::Call { .. } => Some(Type::U64),
-                                _ => Some(Type::U64)
+                    if c == '{' {
+                        let mut var_name = String::new();
+                        while let Some(&next_c) = chars.peek() {
+                            if next_c == '}' {
+                                chars.next();
+                                break;
                             }
+                            var_name.push(chars.next().unwrap());
+                        }
+
+                        let expr = if var_name.is_empty() {
+                            let e = rest_args.get(n_args).cloned().unwrap_or(Expr::Number(0.0));
+                            n_args += 1;
+                            e
                         } else {
-                            Some(Type::U64)
+                            Expr::Identifier(var_name.clone())
+                        };
+
+                        let arg_type = match &expr {
+                            Expr::StringLiteral(_) => Some(Type::String),
+                            Expr::Number(n) => if n.fract() == 0.0 { Some(Type::U64) } else { Some(Type::F64) },
+                            Expr::Identifier(name) => self.get_var(name).and_then(|v| v.var_type.clone()),
+                            Expr::Borrow(name) => self.get_var(name).and_then(|v| v.var_type.clone()),
+                            Expr::Call { .. } => Some(Type::U64),
+                            _ => Some(Type::U64)
                         };
                         
                         match arg_type {
@@ -275,7 +288,8 @@ impl Codegen {
                             Some(Type::F64) | Some(Type::F32) => final_fmt.push_str("%f"),
                             _ => final_fmt.push_str("%llu"),
                         }
-                        n_args += 1;
+                        
+                        final_args.push(expr);
                     } else {
                         final_fmt.push(c);
                     }
@@ -291,7 +305,7 @@ impl Codegen {
                 }
 
                 let mut args_setup = Vec::new();
-                for (i, arg) in rest_args.iter().enumerate() {
+                for (i, arg) in final_args.iter().enumerate() {
                     if i > 2 { break; } // Max 3 args supported right now for simplicity
                     let target_reg = match i {
                         0 => ("rdx", "xmm1"),
@@ -449,18 +463,15 @@ impl Codegen {
                         self.code.push_str("    cmp rcx, rax\n    setge al\n    movzx rax, al\n");
                     },
                     TokenType::And => {
-                        self.code.push_str("    test rcx, rcx\n    setne cl\n    test rax, rax\n    setne al\n    and rax, rcx\n    movzx rax, al\n");
+                        self.code.push_str("    test rcx, rcx\n    setne dl\n    test rax, rax\n    setne al\n    and al, dl\n    movzx rax, al\n");
                     },
                     TokenType::Or => {
-                        self.code.push_str("    test rcx, rcx\n    setne cl\n    test rax, rax\n    setne al\n    or rax, rcx\n    movzx rax, al\n");
+                        self.code.push_str("    test rcx, rcx\n    setne dl\n    test rax, rax\n    setne al\n    or al, dl\n    movzx rax, al\n");
                     },
                     TokenType::NotBoth => {
-                        self.code.push_str("    cmp rcx, rax\n    setne r8b\n");
-                        self.code.push_str("    test rcx, rcx\n    sete r9b\n");
-                        self.code.push_str("    test rax, rax\n    sete r10b\n");
-                        self.code.push_str("    and r8b, r9b\n    and r8b, r10b\n    movzx rax, r8b\n");
+                        self.code.push_str("    test rcx, rcx\n    setne dl\n    test rax, rax\n    setne al\n    and al, dl\n    xor al, 1\n    movzx rax, al\n");
                     },
-                    _ => panic!("Unsupported binary operator: {:?}", op)
+                    _ => panic!("Compilation Error: Unknown binary operator: {:?}", op)
                 }
             },
             Expr::Unary { op: _, expr: _ } | Expr::Root { degree: _, expr: _ } => {
