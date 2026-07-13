@@ -14,8 +14,15 @@ pub enum TokenType {
     Content(String), // for doublequotes
     Mod,
     
+    // types
+    TypeU8, TypeU16, TypeU32, TypeU64,
+    TypeI8, TypeI16, TypeI32, TypeI64,
+    TypeF8, TypeF16, TypeF32, TypeF64,
+    TypeBool, TypeChar, TypeString,
+
     // punctuation
     Semicolon,
+    Comma,
     Dot,
     Colon,
     DoubleQuote,

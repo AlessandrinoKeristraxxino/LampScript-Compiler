@@ -3,8 +3,17 @@ use std::mem::discriminant;
 use crate::lexer::token::*;
 
 #[derive(Debug, Clone, PartialEq)]
+pub enum Type {
+    U8, U16, U32, U64,
+    I8, I16, I32, I64,
+    F8, F16, F32, F64,
+    Bool, Char, String,
+}
+
+#[derive(Debug, Clone, PartialEq)]
 pub enum Expr {
     Number(f64),
+    StringLiteral(String),
     Identifier(String),
     Binary {
         left: Box<Expr>,
@@ -25,10 +34,16 @@ pub enum Expr {
 pub enum Stmt {
     Let {
         name: String,
+        is_mutable: bool,
+        var_type: Option<Type>,
         value: Expr,
     },
-    Print(Expr),
-    Println(Expr),
+    Assign {
+        name: String,
+        value: Expr,
+    },
+    Print(Vec<Expr>),
+    Println(Vec<Expr>),
 }
 
 #[derive(Debug, PartialEq)]
@@ -87,6 +102,32 @@ impl Parser {
         }
     }
 
+    fn parse_type(&mut self) -> Option<Type> {
+        let current_token = self.get_current_token();
+        let t = match current_token.token_type {
+            TokenType::TypeU8 => Some(Type::U8),
+            TokenType::TypeU16 => Some(Type::U16),
+            TokenType::TypeU32 => Some(Type::U32),
+            TokenType::TypeU64 => Some(Type::U64),
+            TokenType::TypeI8 => Some(Type::I8),
+            TokenType::TypeI16 => Some(Type::I16),
+            TokenType::TypeI32 => Some(Type::I32),
+            TokenType::TypeI64 => Some(Type::I64),
+            TokenType::TypeF8 => Some(Type::F8),
+            TokenType::TypeF16 => Some(Type::F16),
+            TokenType::TypeF32 => Some(Type::F32),
+            TokenType::TypeF64 => Some(Type::F64),
+            TokenType::TypeBool => Some(Type::Bool),
+            TokenType::TypeChar => Some(Type::Char),
+            TokenType::TypeString => Some(Type::String),
+            _ => None,
+        };
+        if t.is_some() {
+            self.advance();
+        }
+        t
+    }
+
     fn parse_expression(&mut self) -> Expr {
         let current_token = self.get_current_token();
 
@@ -117,6 +158,10 @@ impl Parser {
                 self.advance();
                 Expr::Identifier(name.clone())
             }
+            TokenType::Content(text) => {
+                self.advance();
+                Expr::StringLiteral(text.clone())
+            }
             _ => panic!(
                 "Syntax Error at line {}, column {}.\nThis expression is not supported: {:?}",
                 current_token.line,
@@ -124,6 +169,22 @@ impl Parser {
                 current_token
             ),
         }
+    }
+
+    fn parse_macro_args(&mut self) -> Vec<Expr> {
+        let mut args = Vec::new();
+        if matches!(self.get_current_token().token_type, TokenType::RParen) {
+            return args;
+        }
+        loop {
+            args.push(self.parse_expression());
+            if matches!(self.get_current_token().token_type, TokenType::Comma) {
+                self.advance();
+            } else {
+                break;
+            }
+        }
+        args
     }
 
     fn parse_statement(&mut self) -> Option<Stmt> {
@@ -137,8 +198,20 @@ impl Parser {
                 if let TokenType::Identifier(name) = &current_token.token_type {
                     self.advance();
                     let variable_name = name.clone();
-                    let current_token = self.get_current_token();
+                    
+                    let mut is_mutable = false;
+                    let mut var_type = None;
+                    
+                    if matches!(self.get_current_token().token_type, TokenType::Colon) {
+                        self.advance(); // consume ':'
+                        if matches!(self.get_current_token().token_type, TokenType::Mod) {
+                            is_mutable = true;
+                            self.advance(); // consume 'mod'
+                        }
+                        var_type = self.parse_type();
+                    }
 
+                    let current_token = self.get_current_token();
                     if let TokenType::Equal = &current_token.token_type {
                         self.advance();
                         let def_value = self.parse_expression();
@@ -146,6 +219,8 @@ impl Parser {
 
                         return Some(Stmt::Let {
                             name: variable_name,
+                            is_mutable,
+                            var_type,
                             value: def_value,
                         });
                     }
@@ -165,27 +240,35 @@ impl Parser {
                     current_token
                 );
             }
+            TokenType::Identifier(name) => {
+                let var_name = name.clone();
+                self.advance();
+                let current_token = self.get_current_token();
+                if let TokenType::Equal = &current_token.token_type {
+                    self.advance();
+                    let value = self.parse_expression();
+                    self.expect_token(TokenType::Semicolon);
+                    Some(Stmt::Assign { name: var_name, value })
+                } else {
+                    // Not an assignment
+                    panic!("Syntax Error at line {}, column {}.\nUnexpected Token {:?}\nExpected Equal for assignment.", current_token.line, current_token.column, current_token);
+                }
+            }
             TokenType::Print => {
                 self.advance();
                 self.expect_token(TokenType::LParen);
-
-                let expr = self.parse_expression();
-
+                let args = self.parse_macro_args();
                 self.expect_token(TokenType::RParen);
                 self.expect_token(TokenType::Semicolon);
-
-                Some(Stmt::Print(expr))
+                Some(Stmt::Print(args))
             }
             TokenType::Println => {
                 self.advance();
                 self.expect_token(TokenType::LParen);
-
-                let expr = self.parse_expression();
-
+                let args = self.parse_macro_args();
                 self.expect_token(TokenType::RParen);
                 self.expect_token(TokenType::Semicolon);
-
-                Some(Stmt::Println(expr))
+                Some(Stmt::Println(args))
             }
             _ => None,
         }
@@ -250,8 +333,10 @@ mod tests {
 
         assert_eq!(program.statements.len(), 1);
         match &program.statements[0] {
-            Stmt::Let { name, value } => {
+            Stmt::Let { name, is_mutable, var_type, value } => {
                 assert_eq!(name, "x");
+                assert_eq!(*is_mutable, false);
+                assert_eq!(*var_type, None);
                 assert!(matches!(value, Expr::Number(10.0)));
             }
             other => panic!("Expected let statement, got {other:?}"),
