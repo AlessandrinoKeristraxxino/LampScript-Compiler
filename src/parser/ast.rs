@@ -1,16 +1,11 @@
-// ast.rs
-
-#![allow(dead_code)]
-#![warn(unreachable_patterns)]
-
 use std::mem::discriminant;
+
 use crate::lexer::token::*;
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum Expr {
     Number(f64),
     Identifier(String),
-
     Binary {
         left: Box<Expr>,
         op: TokenType,
@@ -26,6 +21,7 @@ pub enum Expr {
     },
 }
 
+#[derive(Debug, Clone, PartialEq)]
 pub enum Stmt {
     Let {
         name: String,
@@ -35,6 +31,7 @@ pub enum Stmt {
     Println(Expr),
 }
 
+#[derive(Debug, PartialEq)]
 pub struct Program {
     pub statements: Vec<Stmt>,
 }
@@ -46,10 +43,7 @@ pub struct Parser {
 
 impl Parser {
     pub fn new(tokens: Vec<Token>) -> Self {
-        Self {
-            tokens,
-            position: 0,
-        }
+        Self { tokens, position: 0 }
     }
 
     fn get_current_token(&self) -> Token {
@@ -84,10 +78,11 @@ impl Parser {
             self.advance();
         } else {
             panic!(
-                "Syntax Error at line {}, column {}.\n\
-                Expected Token: {:?}\n\
-                Found: {:?}",
-                current_token.line, current_token.column, expected, current_token
+                "Syntax Error at line {}, column {}.\nExpected Token: {:?}\nFound: {:?}",
+                current_token.line,
+                current_token.column,
+                expected,
+                current_token
             );
         }
     }
@@ -98,19 +93,36 @@ impl Parser {
         match &current_token.token_type {
             TokenType::Value(value) => {
                 self.advance();
-                Expr::Number(*value)
-            },
+
+                if matches!(self.get_current_token().token_type, TokenType::Sqrt) {
+                    self.advance();
+                    let expr = self.parse_expression();
+                    Expr::Root {
+                        degree: Some(*value),
+                        expr: Box::new(expr),
+                    }
+                } else {
+                    Expr::Number(*value)
+                }
+            }
+            TokenType::Sqrt => {
+                self.advance();
+                let expr = self.parse_expression();
+                Expr::Root {
+                    degree: None,
+                    expr: Box::new(expr),
+                }
+            }
             TokenType::Identifier(name) => {
                 self.advance();
                 Expr::Identifier(name.clone())
-            },
-            _ => {
-                panic!(
-                    "Syntax Error at line {}, column {}.\n\
-                    This expression is not supported: {:?}",
-                    current_token.line, current_token.column, current_token
-                );
             }
+            _ => panic!(
+                "Syntax Error at line {}, column {}.\nThis expression is not supported: {:?}",
+                current_token.line,
+                current_token.column,
+                current_token
+            ),
         }
     }
 
@@ -129,32 +141,30 @@ impl Parser {
 
                     if let TokenType::Equal = &current_token.token_type {
                         self.advance();
-
                         let def_value = self.parse_expression();
-
                         self.expect_token(TokenType::Semicolon);
 
-                        return Some(Stmt::Let { name: variable_name, value: def_value });
-
-                    } else {
-                        panic!("
-                            Syntax Error at line {}, column {}. \n\
-                            Unexpected Token {:?} \n\
-                            Expected Equal `let variablename = value` (TokenType::Equal) \n\
-                                                             + <- here",
-                            current_token.line, current_token.column, current_token    
-                        );
+                        return Some(Stmt::Let {
+                            name: variable_name,
+                            value: def_value,
+                        });
                     }
-                } else {
-                    panic!("
-                        Syntax Error at line {}, column {}.\n\
-                        Unexpected Token {:?} \n\
-                        Expected Identifier `let variable_name = value` (TokenType::Identifier(String)) \n\
-                                             +-+-+-+-+-+-+ <- here",
-                        current_token.line, current_token.column, current_token
+
+                    panic!(
+                        "Syntax Error at line {}, column {}.\nUnexpected Token {:?}\nExpected Equal `let variable_name = value`",
+                        current_token.line,
+                        current_token.column,
+                        current_token
                     );
                 }
-            },
+
+                panic!(
+                    "Syntax Error at line {}, column {}.\nUnexpected Token {:?}\nExpected Identifier `let variable_name = value`",
+                    current_token.line,
+                    current_token.column,
+                    current_token
+                );
+            }
             TokenType::Print => {
                 self.advance();
                 self.expect_token(TokenType::LParen);
@@ -165,7 +175,7 @@ impl Parser {
                 self.expect_token(TokenType::Semicolon);
 
                 Some(Stmt::Print(expr))
-            },
+            }
             TokenType::Println => {
                 self.advance();
                 self.expect_token(TokenType::LParen);
@@ -177,7 +187,7 @@ impl Parser {
 
                 Some(Stmt::Println(expr))
             }
-            _ => None
+            _ => None,
         }
     }
 
@@ -188,10 +198,63 @@ impl Parser {
             if let Some(stmt) = self.parse_statement() {
                 statements.push(stmt);
             } else {
-                self.advance(); 
+                self.advance();
             }
         }
 
         Program { statements }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn parses_a_simple_let_statement() {
+        let tokens = vec![
+            Token {
+                token_type: TokenType::Let,
+                line: 1,
+                column: 1,
+                value: None,
+            },
+            Token {
+                token_type: TokenType::Identifier("x".to_string()),
+                line: 1,
+                column: 5,
+                value: Some("x".to_string()),
+            },
+            Token {
+                token_type: TokenType::Equal,
+                line: 1,
+                column: 7,
+                value: None,
+            },
+            Token {
+                token_type: TokenType::Value(10.0),
+                line: 1,
+                column: 9,
+                value: Some("10".to_string()),
+            },
+            Token {
+                token_type: TokenType::Semicolon,
+                line: 1,
+                column: 11,
+                value: None,
+            },
+        ];
+
+        let mut parser = Parser::new(tokens);
+        let program = parser.parse_program();
+
+        assert_eq!(program.statements.len(), 1);
+        match &program.statements[0] {
+            Stmt::Let { name, value } => {
+                assert_eq!(name, "x");
+                assert!(matches!(value, Expr::Number(10.0)));
+            }
+            other => panic!("Expected let statement, got {other:?}"),
+        }
     }
 }

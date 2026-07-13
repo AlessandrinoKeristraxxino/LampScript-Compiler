@@ -33,6 +33,7 @@ pub enum TokenType {
 
     // comments
     SingleComment,
+    MultiComment,
 
     Value(f64),
 }
