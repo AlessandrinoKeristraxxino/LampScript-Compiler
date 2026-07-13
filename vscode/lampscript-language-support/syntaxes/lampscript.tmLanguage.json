@@ -1,0 +1,125 @@
+{
+	"$schema": "https://raw.githubusercontent.com/martinring/tmlanguage/master/tmlanguage.json",
+	"name": "LampScript",
+	"scopeName": "source.lampscript",
+	"patterns": [
+		{ "include": "#comments" },
+		{ "include": "#keywords" },
+		{ "include": "#types" },
+		{ "include": "#builtins" },
+		{ "include": "#constants" },
+		{ "include": "#strings" },
+		{ "include": "#numbers" },
+		{ "include": "#operators" },
+		{ "include": "#functions" }
+	],
+	"repository": {
+		"comments": {
+			"patterns": [
+				{
+					"name": "comment.line.double-slash.lampscript",
+					"match": "//.*$"
+				}
+			]
+		},
+		"keywords": {
+			"patterns": [
+				{
+					"name": "keyword.control.lampscript",
+					"match": "\\b(if|else|while|return)\\b"
+				},
+				{
+					"name": "keyword.declaration.lampscript",
+					"match": "\\b(let|fn|alloc)\\b"
+				},
+				{
+					"name": "storage.modifier.lampscript",
+					"match": "\\b(mod)\\b"
+				}
+			]
+		},
+		"types": {
+			"patterns": [
+				{
+					"name": "entity.name.type.lampscript",
+					"match": "\\b(u8|u16|u32|u64|i8|i16|i32|i64|f8|f16|f32|f64|bool|char|string|void)\\b"
+				}
+			]
+		},
+		"builtins": {
+			"patterns": [
+				{
+					"name": "support.function.lampscript",
+					"match": "\\b(print\\?|println\\?)\\b"
+				}
+			]
+		},
+		"constants": {
+			"patterns": [
+				{
+					"name": "constant.language.boolean.lampscript",
+					"match": "\\b(true|false)\\b"
+				}
+			]
+		},
+		"strings": {
+			"name": "string.quoted.double.lampscript",
+			"begin": "\"",
+			"end": "\"",
+			"patterns": [
+				{
+					"name": "constant.character.escape.lampscript",
+					"match": "\\\\."
+				}
+			]
+		},
+		"numbers": {
+			"patterns": [
+				{
+					"name": "constant.numeric.float.lampscript",
+					"match": "\\b[0-9]+\\.[0-9]+\\b"
+				},
+				{
+					"name": "constant.numeric.integer.lampscript",
+					"match": "\\b[0-9]+\\b"
+				}
+			]
+		},
+		"operators": {
+			"patterns": [
+				{
+					"name": "keyword.operator.logical.lampscript",
+					"match": "(&&|\\|\\||!!)"
+				},
+				{
+					"name": "keyword.operator.comparison.lampscript",
+					"match": "(==|!=|<=|>=|<|>)"
+				},
+				{
+					"name": "keyword.operator.assignment.lampscript",
+					"match": "(=)"
+				},
+				{
+					"name": "keyword.operator.arithmetic.lampscript",
+					"match": "(\\+|-|\\*|/|&)"
+				},
+				{
+					"name": "keyword.operator.arrow.lampscript",
+					"match": "(->)"
+				}
+			]
+		},
+		"functions": {
+			"patterns": [
+				{
+					"match": "\\b([a-zA-Z_][a-zA-Z0-9_]*)\\s*(?=\\()",
+					"captures": {
+						"1": {
+							"name": "entity.name.function.lampscript"
+						}
+					}
+				}
+			]
+		}
+	}
+}

@@ -1,0 +1,32 @@
+{
+  "name": "lampscript-language-support",
+  "displayName": "LampScript Language Support",
+  "description": "The official extension for the LampScript programming language",
+  "version": "0.0.1",
+  "main": "./extension.js",
+  "engines": {
+    "vscode": "^1.125.0"
+  },
+  "categories": [
+    "Programming Languages"
+  ],
+  "contributes": {
+    "snippets": [
+      {
+        "language": "lampscript",
+        "path": "./snippets/lampscript.json"
+      }
+    ],
+    "languages": [{
+      "id": "lampscript",
+      "aliases": ["LampScript", "lampscript"],
+      "extensions": [".las"],
+      "configuration": "./language-configuration.json"
+    }],
+    "grammars": [{
+      "language": "lampscript",
+      "scopeName": "main.las",
+      "path": "./syntaxes/lampscript.tmLanguage.json"
+    }]
+  }
+}

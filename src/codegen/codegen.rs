@@ -4,11 +4,22 @@ use std::collections::HashMap;
 use crate::parser::ast::{Expr, Stmt, Type};
 use crate::lexer::token::TokenType;
 
+#[derive(Clone, PartialEq, Debug)]
+pub enum VarState {
+    Valid,
+    Moved,
+}
+
 #[derive(Clone)]
 pub struct VarInfo {
     pub offset: i32,
+    pub is_global: bool,
+    pub global_label: String,
     pub is_mutable: bool,
     pub var_type: Option<Type>,
+    pub state: VarState,
+    pub is_borrowed: bool,
+    pub is_allocated: bool,
 }
 
 pub struct Codegen {
@@ -16,19 +27,23 @@ pub struct Codegen {
     scopes: Vec<HashMap<String, VarInfo>>,
     stack_offset: i32,
     strings: Vec<(String, String)>,
+    bss: Vec<(String, String)>,
     string_counter: usize,
     label_counter: usize,
+    current_return_type: Option<Type>,
 }
 
 impl Codegen {
     pub fn new() -> Self {
         Self {
             code: String::new(),
-            scopes: vec![HashMap::new()],
+            scopes: vec![HashMap::new()], // Global scope
             stack_offset: 0,
             strings: Vec::new(),
+            bss: Vec::new(),
             string_counter: 0,
             label_counter: 0,
+            current_return_type: None,
         }
     }
 
@@ -49,13 +64,36 @@ impl Codegen {
         None
     }
 
+    fn get_var_mut(&mut self, name: &str) -> Option<&mut VarInfo> {
+        for scope in self.scopes.iter_mut().rev() {
+            if scope.contains_key(name) {
+                return scope.get_mut(name);
+            }
+        }
+        None
+    }
+
     fn gen_stmt(&mut self, stmt: &Stmt) {
         match stmt {
+            Stmt::Function { name, params, return_type, body } => {
+                // Functions are generated separately
+            },
             Stmt::Block(stmts) => {
                 let prev_stack = self.stack_offset;
                 self.push_scope();
                 for s in stmts {
                     self.gen_stmt(s);
+                }
+                if let Some(scope) = self.scopes.last() {
+                    for (_name, var_info) in scope.iter() {
+                        if var_info.state == VarState::Valid && var_info.is_allocated {
+                            let free_code = format!(
+                                "    mov rcx, [rel global_heap_handle]\n    mov rdx, 0\n    mov r8, [rbp - {}]\n    sub rsp, 32\n    call HeapFree\n    add rsp, 32\n",
+                                var_info.offset
+                            );
+                            self.code.push_str(&free_code);
+                        }
+                    }
                 }
                 self.pop_scope();
                 self.stack_offset = prev_stack;
@@ -97,6 +135,18 @@ impl Codegen {
                 self.code.push_str(&format!("    jmp {}\n", start_label));
                 self.code.push_str(&format!("{}:\n", end_label));
             },
+            Stmt::Return(expr) => {
+                if let Some(t) = &self.current_return_type {
+                    if *t == Type::Void && expr.is_some() {
+                        panic!("Compilation Error: Cannot return a value from a void function");
+                    }
+                }
+                
+                if let Some(e) = expr {
+                    self.gen_expr(e);
+                }
+                self.code.push_str("    mov rsp, rbp\n    pop rbp\n    ret\n");
+            },
             Stmt::Let { name, is_mutable, var_type, value } => {
                 let inferred_type = match var_type {
                     Some(t) => Some(t.clone()),
@@ -110,35 +160,79 @@ impl Codegen {
                             }
                         },
                         Expr::Identifier(id) => self.get_var(id).and_then(|v| v.var_type.clone()),
+                        Expr::Call { .. } => Some(Type::U64), // Simplified
                         _ => Some(Type::U64),
                     }
                 };
 
-                self.gen_expr(value);
-
-                self.stack_offset += 8;
-                if let Some(scope) = self.scopes.last_mut() {
-                    scope.insert(name.clone(), VarInfo {
-                        offset: self.stack_offset,
-                        is_mutable: *is_mutable,
-                        var_type: inferred_type,
-                    });
+                let mut is_alloc = matches!(value, Expr::Alloc(_));
+                if let Expr::Identifier(id_name) = &value {
+                    if let Some(v) = self.get_var(id_name) {
+                        is_alloc = v.is_allocated;
+                    }
                 }
 
-                let instruction = format!("    mov [rbp - {}], rax\n", self.stack_offset);
-                self.code.push_str(&instruction);
+                self.gen_expr(value);
+
+                let is_global = self.scopes.len() == 1;
+
+                if is_global {
+                    let global_label = format!("global_{}", name);
+                    self.bss.push((global_label.clone(), "resq 1".to_string()));
+                    
+                    if let Some(scope) = self.scopes.first_mut() {
+                        scope.insert(name.clone(), VarInfo {
+                            offset: 0,
+                            is_global: true,
+                            global_label: global_label.clone(),
+                            is_mutable: *is_mutable,
+                            var_type: inferred_type.clone(),
+                            state: VarState::Valid,
+                            is_borrowed: false,
+                            is_allocated: is_alloc,
+                        });
+                    }
+                    self.code.push_str(&format!("    mov [rel {}], rax\n", global_label));
+                } else {
+                    self.stack_offset += 8;
+                    if let Some(scope) = self.scopes.last_mut() {
+                        scope.insert(name.clone(), VarInfo {
+                            offset: self.stack_offset,
+                            is_global: false,
+                            global_label: String::new(),
+                            is_mutable: *is_mutable,
+                            var_type: inferred_type.clone(),
+                            state: VarState::Valid,
+                            is_borrowed: false,
+                            is_allocated: is_alloc,
+                        });
+                    }
+                    self.code.push_str(&format!("    mov [rbp - {}], rax\n", self.stack_offset));
+                }
             },
             Stmt::Assign { name, value } => {
-                if let Some(var_info) = self.get_var(name) {
-                    if !var_info.is_mutable {
-                        panic!("Compilation Error: Variable '{}' is not mutable!", name);
+                let mut alloc_status = matches!(value, Expr::Alloc(_));
+                if let Expr::Identifier(id_name) = &value {
+                    if let Some(v) = self.get_var(id_name) {
+                        alloc_status = v.is_allocated;
                     }
-                    let offset = var_info.offset;
-                    self.gen_expr(value);
-                    let instruction = format!("    mov [rbp - {}], rax\n", offset);
-                    self.code.push_str(&instruction);
+                }
+
+                let (is_global, global_label, offset) = {
+                    let var_info = self.get_var_mut(name).unwrap_or_else(|| panic!("Compilation Error: Variable '{}' is not defined!", name));
+                    if !var_info.is_mutable {
+                        panic!("Security Error: Cannot mutate immutable variable '{}'!", name);
+                    }
+                    var_info.state = VarState::Valid;
+                    var_info.is_allocated = alloc_status;
+                    (var_info.is_global, var_info.global_label.clone(), var_info.offset)
+                };
+                
+                self.gen_expr(value);
+                if is_global {
+                    self.code.push_str(&format!("    mov [rel {}], rax\n", global_label));
                 } else {
-                    panic!("Compilation Error: Variable '{}' is not defined!", name);
+                    self.code.push_str(&format!("    mov [rbp - {}], rax\n", offset));
                 }
             },
             Stmt::Print(args) | Stmt::Println(args) => {
@@ -169,6 +263,7 @@ impl Codegen {
                                 Expr::StringLiteral(_) => Some(Type::String),
                                 Expr::Number(n) => if n.fract() == 0.0 { Some(Type::U64) } else { Some(Type::F64) },
                                 Expr::Identifier(name) => self.get_var(name).and_then(|v| v.var_type.clone()),
+                                Expr::Call { .. } => Some(Type::U64),
                                 _ => Some(Type::U64)
                             }
                         } else {
@@ -185,16 +280,15 @@ impl Codegen {
                         final_fmt.push(c);
                     }
                 }
-
-                if is_println {
-                    final_fmt.push_str("\\n");
-                }
                 
                 let fmt_label = format!("fmt_{}", self.string_counter);
                 self.string_counter += 1;
-                
-                let nasm_fmt = final_fmt.replace("\\n", "\", 10, \"");
-                self.strings.push((fmt_label.clone(), format!("db \"{}\", 0", nasm_fmt)));
+
+                if is_println {
+                    self.strings.push((fmt_label.clone(), format!("db \"{}\", 10, 0", final_fmt)));
+                } else {
+                    self.strings.push((fmt_label.clone(), format!("db \"{}\", 0", final_fmt)));
+                }
 
                 let mut args_setup = Vec::new();
                 for (i, arg) in rest_args.iter().enumerate() {
@@ -216,6 +310,9 @@ impl Codegen {
 
                 let instruction = format!("    lea rcx, [rel {}]\n    sub rsp, 32\n    call printf\n    add rsp, 32\n", fmt_label);
                 self.code.push_str(&instruction);
+            },
+            Stmt::Expr(expr) => {
+                self.gen_expr(expr);
             }
         }
     }
@@ -242,11 +339,75 @@ impl Codegen {
                 self.code.push_str(&instruction);
             },
             Expr::Identifier(name) => {
-                if let Some(var_info) = self.get_var(name) {
-                    let instruction = format!("    mov rax, [rbp - {}]\n", var_info.offset);
-                    self.code.push_str(&instruction);
+                let (offset, global_label, is_global, is_borrowed) = {
+                    let var_info = self.get_var_mut(name).unwrap_or_else(|| panic!("Compilation Error: Variable '{}' not defined!", name));
+                    if var_info.state == VarState::Moved {
+                        panic!("Security Error: Use of moved variable '{}'", name);
+                    }
+                    
+                    let mut is_borrowed_val = false;
+                    let is_copy = var_info.var_type.as_ref().map(|t| t.is_copy()).unwrap_or(true);
+                    
+                    if !is_copy || var_info.is_allocated {
+                        var_info.state = VarState::Moved;
+                    }
+                    
+                    if var_info.is_borrowed {
+                        is_borrowed_val = true;
+                    }
+                    
+                    (var_info.offset, var_info.global_label.clone(), var_info.is_global, is_borrowed_val)
+                };
+
+                if is_global {
+                    self.code.push_str(&format!("    mov rax, [rel {}]\n", global_label));
                 } else {
-                    panic!("Compilation Error: Variable '{}' not defined!", name);
+                    self.code.push_str(&format!("    mov rax, [rbp - {}]\n", offset));
+                }
+                
+                if is_borrowed {
+                    self.code.push_str("    mov rax, [rax]\n");
+                }
+            },
+            Expr::Alloc(inner) => {
+                self.gen_expr(inner);
+                self.code.push_str("    push rax\n");
+                self.code.push_str("    mov rcx, [rel global_heap_handle]\n");
+                self.code.push_str("    mov rdx, 8\n"); // HEAP_ZERO_MEMORY = 8
+                self.code.push_str("    mov r8, 8\n"); // 8 bytes allocation
+                self.code.push_str("    sub rsp, 32\n    call HeapAlloc\n    add rsp, 32\n");
+                self.code.push_str("    pop rcx\n");
+                self.code.push_str("    mov [rax], rcx\n");
+            },
+            Expr::Borrow(name) => {
+                if let Some(var_info) = self.get_var(name) {
+                    if var_info.is_global {
+                        self.code.push_str(&format!("    lea rax, [rel {}]\n", var_info.global_label));
+                    } else {
+                        self.code.push_str(&format!("    lea rax, [rbp - {}]\n", var_info.offset));
+                    }
+                } else {
+                    panic!("Compilation Error: Variable '{}' not defined for borrowing!", name);
+                }
+            },
+            Expr::Call { name, args } => {
+                for (i, arg) in args.iter().enumerate() {
+                    self.gen_expr(arg);
+                    match i {
+                        0 => self.code.push_str("    mov rcx, rax\n"),
+                        1 => self.code.push_str("    mov rdx, rax\n"),
+                        2 => self.code.push_str("    mov r8, rax\n"),
+                        3 => self.code.push_str("    mov r9, rax\n"),
+                        _ => self.code.push_str("    push rax\n"),
+                    }
+                }
+                
+                self.code.push_str("    sub rsp, 32\n");
+                self.code.push_str(&format!("    call {}\n", name));
+                self.code.push_str("    add rsp, 32\n");
+                
+                if args.len() > 4 {
+                    self.code.push_str(&format!("    add rsp, {}\n", (args.len() - 4) * 8));
                 }
             },
             Expr::Binary { left, op, right } => {
@@ -313,16 +474,33 @@ impl Codegen {
             global main\n\
             extern ExitProcess\n\
             extern printf\n\
+            extern GetProcessHeap\n\
+            extern HeapAlloc\n\
+            extern HeapFree\n\
             \n
-            section .text\n\
-            main:\n\
-                push rbp\n\
-                mov rbp, rsp\n\
-                sub rsp, 256\n"
+            section .text\n"
         );
         self.code.push_str(&text_code);
+        self.bss.push(("global_heap_handle".to_string(), "resq 1".to_string()));
 
+        // Extract functions
+        let mut fns = Vec::new();
+        let mut top_level = Vec::new();
+        
         for stmt in statements {
+            if matches!(stmt, Stmt::Function { .. }) {
+                fns.push(stmt);
+            } else {
+                top_level.push(stmt);
+            }
+        }
+
+        // Generate main
+        self.code.push_str("main:\n    push rbp\n    mov rbp, rsp\n    sub rsp, 256\n");
+        self.code.push_str("    sub rsp, 32\n    call GetProcessHeap\n    add rsp, 32\n    mov [rel global_heap_handle], rax\n");
+        self.stack_offset = 0;
+        
+        for stmt in top_level {
             self.gen_stmt(stmt);
         }
 
@@ -331,11 +509,79 @@ impl Codegen {
             call ExitProcess\n"
         );
         self.code.push_str(&last_code);
+
+        // Generate functions
+        for f in fns {
+            if let Stmt::Function { name, params, return_type, body } = f {
+                self.code.push_str(&format!("{}:\n", name));
+                self.code.push_str("    push rbp\n    mov rbp, rsp\n    sub rsp, 256\n");
+                
+                self.push_scope();
+                self.stack_offset = 0; // reset local stack
+                self.current_return_type = Some(return_type.clone());
+
+                for (i, (p_name, is_mut, is_borrowed, p_type)) in params.iter().enumerate() {
+                    self.stack_offset += 8;
+                    
+                    match i {
+                        0 => self.code.push_str(&format!("    mov [rbp - {}], rcx\n", self.stack_offset)),
+                        1 => self.code.push_str(&format!("    mov [rbp - {}], rdx\n", self.stack_offset)),
+                        2 => self.code.push_str(&format!("    mov [rbp - {}], r8\n", self.stack_offset)),
+                        3 => self.code.push_str(&format!("    mov [rbp - {}], r9\n", self.stack_offset)),
+                        _ => {
+                            // read from caller's stack
+                            let caller_offset = 16 + (i - 4) * 8; // skip ret IP and saved RBP
+                            self.code.push_str(&format!("    mov rax, [rbp + {}]\n", caller_offset));
+                            self.code.push_str(&format!("    mov [rbp - {}], rax\n", self.stack_offset));
+                        }
+                    }
+
+                    if let Some(scope) = self.scopes.last_mut() {
+                        scope.insert(p_name.clone(), VarInfo {
+                            offset: self.stack_offset,
+                            is_global: false,
+                            global_label: String::new(),
+                            is_mutable: *is_mut,
+                            var_type: Some(p_type.clone()),
+                            state: VarState::Valid,
+                            is_borrowed: *is_borrowed,
+                            is_allocated: false, // function params don't allocate new heap
+                        });
+                    }
+                }
+
+                self.gen_stmt(body);
+
+                if let Some(scope) = self.scopes.last() {
+                    for (name, var_info) in scope.iter() {
+                        if var_info.state == VarState::Valid && var_info.is_allocated {
+                            let free_code = format!(
+                                "    mov rcx, [rel global_heap_handle]\n    mov rdx, 0\n    mov r8, [rbp - {}]\n    sub rsp, 32\n    call HeapFree\n    add rsp, 32\n",
+                                var_info.offset
+                            );
+                            self.code.push_str(&free_code);
+                        }
+                    }
+                }
+                
+                self.pop_scope();
+                self.current_return_type = None;
+
+                // Emitted epilogue if no return was hit
+                self.code.push_str("    mov rsp, rbp\n    pop rbp\n    ret\n\n");
+            }
+        }
         
-        if !self.strings.is_empty() {
+        if !self.strings.is_empty() || !self.bss.is_empty() {
             self.code.push_str("\nsection .data\n");
             for (label, data) in &self.strings {
                 self.code.push_str(&format!("    {} {}\n", label, data));
+            }
+            if !self.bss.is_empty() {
+                self.code.push_str("\nsection .bss\n");
+                for (label, data) in &self.bss {
+                    self.code.push_str(&format!("    {} {}\n", label, data));
+                }
             }
         }
     }

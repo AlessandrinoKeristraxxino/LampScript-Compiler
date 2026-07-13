@@ -8,6 +8,16 @@ pub enum Type {
     I8, I16, I32, I64,
     F8, F16, F32, F64,
     Bool, Char, String,
+    Void,
+}
+
+impl Type {
+    pub fn is_copy(&self) -> bool {
+        match self {
+            Type::String => false,
+            _ => true,
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -28,6 +38,12 @@ pub enum Expr {
         degree: Option<f64>,
         expr: Box<Expr>,
     },
+    Call {
+        name: String,
+        args: Vec<Expr>,
+    },
+    Alloc(Box<Expr>),
+    Borrow(String), // &x
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -54,6 +70,14 @@ pub enum Stmt {
         body: Box<Stmt>,
     },
     Block(Vec<Stmt>),
+    Function {
+        name: String,
+        params: Vec<(String, bool, bool, Type)>, // name, is_mutable, is_borrowed, type
+        return_type: Type,
+        body: Box<Stmt>,
+    },
+    Return(Option<Expr>),
+    Expr(Expr),
 }
 
 #[derive(Debug, PartialEq)]
@@ -130,6 +154,7 @@ impl Parser {
             TokenType::TypeBool => Some(Type::Bool),
             TokenType::TypeChar => Some(Type::Char),
             TokenType::TypeString => Some(Type::String),
+            TokenType::TypeVoid => Some(Type::Void),
             _ => None,
         };
         if t.is_some() {
@@ -236,7 +261,24 @@ impl Parser {
             }
             TokenType::Identifier(name) => {
                 self.advance();
-                Expr::Identifier(name.clone())
+                if matches!(self.get_current_token().token_type, TokenType::LParen) {
+                    self.advance(); // consume '('
+                    let mut args = Vec::new();
+                    if !matches!(self.get_current_token().token_type, TokenType::RParen) {
+                        loop {
+                            args.push(self.parse_expression());
+                            if matches!(self.get_current_token().token_type, TokenType::Comma) {
+                                self.advance();
+                            } else {
+                                break;
+                            }
+                        }
+                    }
+                    self.expect_token(TokenType::RParen);
+                    Expr::Call { name: name.clone(), args }
+                } else {
+                    Expr::Identifier(name.clone())
+                }
             }
             TokenType::Content(text) => {
                 self.advance();
@@ -252,6 +294,21 @@ impl Parser {
                 self.advance();
                 let expr = self.parse_expression();
                 Expr::Root { degree: None, expr: Box::new(expr) }
+            }
+            TokenType::Alloc => {
+                self.advance();
+                let expr = self.parse_expression();
+                Expr::Alloc(Box::new(expr))
+            }
+            TokenType::Ampersand => {
+                self.advance();
+                let current = self.get_current_token();
+                if let TokenType::Identifier(name) = current.token_type {
+                    self.advance();
+                    Expr::Borrow(name)
+                } else {
+                    panic!("Syntax Error: Expected identifier after &");
+                }
             }
             _ => panic!(
                 "Syntax Error at line {}, column {}.\nUnexpected expression token: {:?}",
@@ -291,6 +348,7 @@ impl Parser {
                     }
                 }
                 self.expect_token(TokenType::RBrace);
+                self.expect_token(TokenType::Semicolon); // strict semicolon
                 Some(Stmt::Block(stmts))
             }
             TokenType::If => {
@@ -315,6 +373,73 @@ impl Parser {
                 let condition = self.parse_expression();
                 let body = self.parse_statement().expect("Expected statement after while condition");
                 Some(Stmt::While { condition, body: Box::new(body) })
+            }
+            TokenType::Fn => {
+                self.advance(); // consume 'fn'
+                let current = self.get_current_token();
+                let name = if let TokenType::Identifier(n) = current.token_type {
+                    self.advance();
+                    n
+                } else {
+                    panic!("Expected function name after fn");
+                };
+
+                self.expect_token(TokenType::LParen);
+                let mut params = Vec::new();
+                if !matches!(self.get_current_token().token_type, TokenType::RParen) {
+                    loop {
+                        let mut is_borrowed = false;
+                        if matches!(self.get_current_token().token_type, TokenType::Ampersand) {
+                            is_borrowed = true;
+                            self.advance();
+                        }
+
+                        let mut is_mutable = false;
+                        let param_name = if let TokenType::Identifier(n) = self.get_current_token().token_type {
+                            self.advance();
+                            n
+                        } else {
+                            panic!("Expected parameter name");
+                        };
+
+                        self.expect_token(TokenType::Colon);
+                        
+                        if matches!(self.get_current_token().token_type, TokenType::Mod) {
+                            is_mutable = true;
+                            self.advance();
+                        }
+
+                        let param_type = self.parse_type().expect("Expected parameter type");
+                        params.push((param_name, is_mutable, is_borrowed, param_type));
+
+                        if matches!(self.get_current_token().token_type, TokenType::Comma) {
+                            self.advance();
+                        } else {
+                            break;
+                        }
+                    }
+                }
+                self.expect_token(TokenType::RParen);
+                self.expect_token(TokenType::Arrow);
+                let return_type = self.parse_type().expect("Expected return type");
+
+                let body = self.parse_statement().expect("Expected function body");
+                
+                Some(Stmt::Function {
+                    name,
+                    params,
+                    return_type,
+                    body: Box::new(body),
+                })
+            }
+            TokenType::Return => {
+                self.advance();
+                let mut value = None;
+                if !matches!(self.get_current_token().token_type, TokenType::Semicolon) {
+                    value = Some(self.parse_expression());
+                }
+                self.expect_token(TokenType::Semicolon);
+                Some(Stmt::Return(value))
             }
             TokenType::Let => {
                 self.advance();
@@ -368,15 +493,28 @@ impl Parser {
             TokenType::Identifier(name) => {
                 let var_name = name.clone();
                 self.advance();
-                let current_token = self.get_current_token();
-                if let TokenType::Equal = &current_token.token_type {
-                    self.advance();
+                
+                if matches!(self.get_current_token().token_type, TokenType::LParen) {
+                    self.advance(); // consume '('
+                    let mut args = Vec::new();
+                    if !matches!(self.get_current_token().token_type, TokenType::RParen) {
+                        loop {
+                            args.push(self.parse_expression());
+                            if matches!(self.get_current_token().token_type, TokenType::Comma) {
+                                self.advance();
+                            } else {
+                                break;
+                            }
+                        }
+                    }
+                    self.expect_token(TokenType::RParen);
+                    self.expect_token(TokenType::Semicolon);
+                    Some(Stmt::Expr(Expr::Call { name: var_name, args }))
+                } else {
+                    self.expect_token(TokenType::Equal);
                     let value = self.parse_expression();
                     self.expect_token(TokenType::Semicolon);
                     Some(Stmt::Assign { name: var_name, value })
-                } else {
-                    // Not an assignment
-                    panic!("Syntax Error at line {}, column {}.\nUnexpected Token {:?}\nExpected Equal for assignment.", current_token.line, current_token.column, current_token);
                 }
             }
             TokenType::Print => {

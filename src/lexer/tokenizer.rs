@@ -187,6 +187,12 @@ impl Lexer {
                     self.position += 2;
                     self.column += 2;
                 } else {
+                    tokens.push(Token {
+                        token_type: TokenType::Ampersand,
+                        line: self.line,
+                        column: self.column,
+                        value: None
+                    });
                     self.position += 1;
                     self.column += 1;
                 }
@@ -260,15 +266,27 @@ impl Lexer {
                 self.column += 1;
             },
             '-' => {
-                tokens.push(Token {
-                    token_type: TokenType::Minus,
-                    line: self.line,
-                    column: self.column,
-                    value: None
-                });
-
-                self.position += 1;
-                self.column += 1;
+                if self.position + 1 < self.input.len() && self.input[self.position + 1] == '>' {
+                    tokens.push(Token {
+                        token_type: TokenType::Arrow,
+                        line: self.line,
+                        column: self.column,
+                        value: None
+                    });
+        
+                    self.position += 2;
+                    self.column += 2;
+                } else {
+                    tokens.push(Token {
+                        token_type: TokenType::Minus,
+                        line: self.line,
+                        column: self.column,
+                        value: None
+                    });
+        
+                    self.position += 1;
+                    self.column += 1;
+                }
             },
             '*' => {
                 if self.position + 1 < self.input.len() && self.input[self.position + 1] == '*' {
@@ -342,11 +360,12 @@ impl Lexer {
             return;
         }
 
-        if self.input[self.position].is_alphabetic() {
+        if self.input[self.position].is_alphabetic() || self.input[self.position] == '_' {
             while (
                 self.position < self.input.len() && (
                     self.input[self.position].is_alphanumeric() ||
-                    self.input[self.position] == '?'
+                    self.input[self.position] == '?' ||
+                    self.input[self.position] == '_'
                 )
             ) {
                 keyword.push(self.input[self.position]);
@@ -355,6 +374,9 @@ impl Lexer {
             }
 
             match keyword.as_str() {
+                "fn" => tokens.push(Token { token_type: TokenType::Fn, line: self.line, column: start_column, value: None }),
+                "return" => tokens.push(Token { token_type: TokenType::Return, line: self.line, column: start_column, value: None }),
+                "void" => tokens.push(Token { token_type: TokenType::TypeVoid, line: self.line, column: start_column, value: None }),
                 "if" => tokens.push(Token { token_type: TokenType::If, line: self.line, column: start_column, value: None }),
                 "else" => tokens.push(Token { token_type: TokenType::Else, line: self.line, column: start_column, value: None }),
                 "while" => tokens.push(Token { token_type: TokenType::While, line: self.line, column: start_column, value: None }),
@@ -387,6 +409,14 @@ impl Lexer {
                 "mod" => {
                     tokens.push(Token {
                         token_type: TokenType::Mod,
+                        line: self.line,
+                        column: start_column,
+                        value: None
+                    });
+                },
+                "alloc" => {
+                    tokens.push(Token {
+                        token_type: TokenType::Alloc,
                         line: self.line,
                         column: start_column,
                         value: None

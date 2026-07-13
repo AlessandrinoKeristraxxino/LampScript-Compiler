@@ -1,0 +1,64 @@
+{
+  "If Statement": {
+    "prefix": "if",
+    "body": [
+      "if ${1:condition} {",
+      "\t$0",
+      "};"
+    ],
+    "description": "Create an if statement"
+  },
+  "While Loop": {
+    "prefix": "while",
+    "body": [
+      "while ${1:condition} {",
+      "\t$0",
+      "};"
+    ],
+    "description": "Create a while loop"
+  },
+  "Print Statement": {
+    "prefix": "print",
+    "body": [
+      "print?(${1:\"message\"});"
+    ],
+    "description": "Print without newline"
+  },
+  "Println Statement": {
+    "prefix": "println",
+    "body": [
+      "println?(${1:\"message\"});"
+    ],
+    "description": "Print with newline"
+  },
+  "Variable Declaration": {
+    "prefix": "let",
+    "body": [
+      "let ${1:name}: ${2:u32} = ${3:value};"
+    ],
+    "description": "Declare an immutable variable"
+  },
+  "Mutable Variable Declaration": {
+    "prefix": "letm",
+    "body": [
+      "let ${1:name}: mod ${2:u32} = ${3:value};"
+    ],
+    "description": "Declare a mutable variable"
+  },
+  "Function Declaration": {
+    "prefix": "fn",
+    "body": [
+      "fn ${1:name}(${2:params}) -> ${3:void} {",
+      "\t$0",
+      "};"
+    ],
+    "description": "Declare a new function"
+  },
+  "Heap Allocation": {
+    "prefix": "alloc",
+    "body": [
+      "alloc ${1:value}"
+    ],
+    "description": "Dynamically allocate memory on the heap"
+  }
+}

@@ -1,26 +1,31 @@
-let x: u32 = 1;
-let y: u32 = 2;
+let global_val: mod u32 = 100;
 
-if x == 1 && y == 2 {
-    println?("Condition met! x is 1 and y is 2");
-} else if x == 2 {
-    println?("Else if met");
-} else {
-    println?("Else met");
-}
+fn modify_global() -> void {
+    global_val = global_val + 50;
+    println?("Global modified inside function: {}", global_val);
+};
+
+fn sum(x: mod u32, y: u32) -> u32 {
+    x = x + y;
+    return x;
+};
+
+let a: u32 = 10;
+let b: u32 = 20;
+
+let result: u32 = sum(a, b);
+println?("Result of sum(10, 20): {}", result);
+
+modify_global();
+println?("Global value after function call: {}", global_val);
+
+if result == 30 {
+    println?("Logic works!");
+};
 
 let i: mod u32 = 0;
-while i < 3 {
-    println?("Loop: {}", i);
+while i < 2 {
+    println?("Loop iteration {}", i);
     i = i + 1;
-}
+};
 
-if x !! y {
-    println?("x NotBoth y is true (NAND logic with a twist!)");
-}
-
-{
-    let z: u32 = 100;
-    println?("Inner scope z: {}", z);
-}
-// println?("Z: {}", z); // This would fail to compile now!

@@ -12,11 +12,16 @@ pub enum TokenType {
     If, Else, While,
     True, False,
     
+    // functions
+    Fn, Return, Arrow, TypeVoid,
+
     // variabili
     Let,
     Identifier(String),
     Content(String), // for doublequotes
     Mod,
+    Alloc,
+    Ampersand,
     
     // types
     TypeU8, TypeU16, TypeU32, TypeU64,
