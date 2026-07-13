@@ -23,12 +23,15 @@ pub enum TokenType {
     Alloc,
     Ampersand,
     
-    // types
+    // Types
     TypeU8, TypeU16, TypeU32, TypeU64,
     TypeI8, TypeI16, TypeI32, TypeI64,
     TypeF8, TypeF16, TypeF32, TypeF64,
     TypeBool, TypeChar, TypeString,
-
+    
+    // Structs and Enums
+    Struct, Enum, DoubleColon,
+    
     // punctuation
     Semicolon,
     Comma,
@@ -72,4 +75,3 @@ pub struct Token {
     pub column: usize,
     pub value: Option<String>,
 }
-

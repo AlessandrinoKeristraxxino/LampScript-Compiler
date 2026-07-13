@@ -8,13 +8,14 @@ pub enum Type {
     I8, I16, I32, I64,
     F8, F16, F32, F64,
     Bool, Char, String,
+    Custom(String),
     Void,
 }
 
 impl Type {
     pub fn is_copy(&self) -> bool {
         match self {
-            Type::String => false,
+            Type::String | Type::Custom(_) => false,
             _ => true,
         }
     }
@@ -44,6 +45,18 @@ pub enum Expr {
     },
     Alloc(Box<Expr>),
     Borrow(String), // &x
+    StructInit {
+        name: String,
+        fields: Vec<(String, Expr)>,
+    },
+    FieldAccess {
+        expr: Box<Expr>,
+        field: String,
+    },
+    EnumVariant {
+        enum_name: String,
+        variant: String,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -75,6 +88,14 @@ pub enum Stmt {
         params: Vec<(String, bool, bool, Type)>, // name, is_mutable, is_borrowed, type
         return_type: Type,
         body: Box<Stmt>,
+    },
+    StructDecl {
+        name: String,
+        fields: Vec<(String, Type)>,
+    },
+    EnumDecl {
+        name: String,
+        variants: Vec<String>,
     },
     Return(Option<Expr>),
     Expr(Expr),
@@ -155,6 +176,7 @@ impl Parser {
             TokenType::TypeChar => Some(Type::Char),
             TokenType::TypeString => Some(Type::String),
             TokenType::TypeVoid => Some(Type::Void),
+            TokenType::Identifier(name) => Some(Type::Custom(name.clone())),
             _ => None,
         };
         if t.is_some() {
@@ -234,12 +256,29 @@ impl Parser {
     }
 
     fn parse_factor(&mut self) -> Expr {
-        let mut expr = self.parse_primary();
+        let mut expr = self.parse_postfix();
         while matches!(self.get_current_token().token_type, TokenType::Asterisk | TokenType::Slash) {
             let op = self.get_current_token().token_type.clone();
             self.advance();
-            let right = self.parse_primary();
+            let right = self.parse_postfix();
             expr = Expr::Binary { left: Box::new(expr), op, right: Box::new(right) };
+        }
+        expr
+    }
+
+    fn parse_postfix(&mut self) -> Expr {
+        let mut expr = self.parse_primary();
+        while matches!(self.get_current_token().token_type, TokenType::Dot) {
+            self.advance(); // consume '.'
+            if let TokenType::Identifier(field_name) = self.get_current_token().token_type {
+                self.advance();
+                expr = Expr::FieldAccess {
+                    expr: Box::new(expr),
+                    field: field_name,
+                };
+            } else {
+                panic!("Expected field name after '.'");
+            }
         }
         expr
     }
@@ -261,7 +300,38 @@ impl Parser {
             }
             TokenType::Identifier(name) => {
                 self.advance();
-                if matches!(self.get_current_token().token_type, TokenType::LParen) {
+                if matches!(self.get_current_token().token_type, TokenType::DoubleColon) {
+                    self.advance(); // consume '::'
+                    if let TokenType::Identifier(variant) = self.get_current_token().token_type {
+                        self.advance();
+                        Expr::EnumVariant { enum_name: name.clone(), variant }
+                    } else {
+                        panic!("Expected variant name after ::");
+                    }
+                } else if matches!(self.get_current_token().token_type, TokenType::LBrace) {
+                    self.advance(); // consume '{'
+                    let mut fields = Vec::new();
+                    if !matches!(self.get_current_token().token_type, TokenType::RBrace) {
+                        loop {
+                            if let TokenType::Identifier(field_name) = self.get_current_token().token_type {
+                                self.advance();
+                                self.expect_token(TokenType::Colon);
+                                let field_expr = self.parse_expression();
+                                fields.push((field_name, field_expr));
+                                
+                                if matches!(self.get_current_token().token_type, TokenType::Comma) {
+                                    self.advance();
+                                } else {
+                                    break;
+                                }
+                            } else {
+                                break;
+                            }
+                        }
+                    }
+                    self.expect_token(TokenType::RBrace);
+                    Expr::StructInit { name: name.clone(), fields }
+                } else if matches!(self.get_current_token().token_type, TokenType::LParen) {
                     self.advance(); // consume '('
                     let mut args = Vec::new();
                     if !matches!(self.get_current_token().token_type, TokenType::RParen) {
@@ -373,6 +443,71 @@ impl Parser {
                 let condition = self.parse_expression();
                 let body = self.parse_statement().expect("Expected statement after while condition");
                 Some(Stmt::While { condition, body: Box::new(body) })
+            }
+            TokenType::Struct => {
+                self.advance(); // consume 'struct'
+                let current = self.get_current_token();
+                let name = if let TokenType::Identifier(n) = current.token_type {
+                    self.advance();
+                    n
+                } else {
+                    panic!("Expected struct name");
+                };
+
+                self.expect_token(TokenType::LBrace);
+                let mut fields = Vec::new();
+                if !matches!(self.get_current_token().token_type, TokenType::RBrace) {
+                    loop {
+                        let field_name = if let TokenType::Identifier(n) = self.get_current_token().token_type {
+                            self.advance();
+                            n
+                        } else {
+                            break;
+                        };
+                        self.expect_token(TokenType::Colon);
+                        let field_type = self.parse_type().expect("Expected field type");
+                        fields.push((field_name, field_type));
+
+                        if matches!(self.get_current_token().token_type, TokenType::Comma) {
+                            self.advance();
+                        } else {
+                            break;
+                        }
+                    }
+                }
+                self.expect_token(TokenType::RBrace);
+                Some(Stmt::StructDecl { name, fields })
+            }
+            TokenType::Enum => {
+                self.advance(); // consume 'enum'
+                let current = self.get_current_token();
+                let name = if let TokenType::Identifier(n) = current.token_type {
+                    self.advance();
+                    n
+                } else {
+                    panic!("Expected enum name");
+                };
+
+                self.expect_token(TokenType::LBrace);
+                let mut variants = Vec::new();
+                if !matches!(self.get_current_token().token_type, TokenType::RBrace) {
+                    loop {
+                        if let TokenType::Identifier(n) = self.get_current_token().token_type {
+                            self.advance();
+                            variants.push(n);
+                        } else {
+                            break;
+                        }
+
+                        if matches!(self.get_current_token().token_type, TokenType::Comma) {
+                            self.advance();
+                        } else {
+                            break;
+                        }
+                    }
+                }
+                self.expect_token(TokenType::RBrace);
+                Some(Stmt::EnumDecl { name, variants })
             }
             TokenType::Fn => {
                 self.advance(); // consume 'fn'

@@ -25,6 +25,8 @@ pub struct VarInfo {
 pub struct Codegen {
     pub code: String,
     scopes: Vec<HashMap<String, VarInfo>>,
+    structs: HashMap<String, Vec<(String, Type)>>,
+    enums: HashMap<String, Vec<String>>,
     stack_offset: i32,
     strings: Vec<(String, String)>,
     bss: Vec<(String, String)>,
@@ -38,6 +40,8 @@ impl Codegen {
         Self {
             code: String::new(),
             scopes: vec![HashMap::new()], // Global scope
+            structs: HashMap::new(),
+            enums: HashMap::new(),
             stack_offset: 0,
             strings: Vec::new(),
             bss: Vec::new(),
@@ -77,6 +81,12 @@ impl Codegen {
         match stmt {
             Stmt::Function { name, params, return_type, body } => {
                 // Functions are generated separately
+            },
+            Stmt::StructDecl { name, fields } => {
+                self.structs.insert(name.clone(), fields.clone());
+            },
+            Stmt::EnumDecl { name, variants } => {
+                self.enums.insert(name.clone(), variants.clone());
             },
             Stmt::Block(stmts) => {
                 let prev_stack = self.stack_offset;
@@ -403,6 +413,63 @@ impl Codegen {
                 } else {
                     panic!("Compilation Error: Variable '{}' not defined for borrowing!", name);
                 }
+            },
+            Expr::StructInit { name, fields } => {
+                let struct_def = self.structs.get(name).expect(&format!("Unknown struct '{}'", name)).clone();
+                let size = struct_def.len() * 8; // 8 bytes per field for simplicity
+                
+                self.code.push_str("    mov rcx, [rel global_heap_handle]\n");
+                self.code.push_str("    mov rdx, 8\n"); // HEAP_ZERO_MEMORY = 8
+                self.code.push_str(&format!("    mov r8, {}\n", size));
+                self.code.push_str("    sub rsp, 32\n    call HeapAlloc\n    add rsp, 32\n");
+                
+                // rax now contains the heap pointer. Push it to save it while we evaluate fields.
+                self.code.push_str("    push rax\n");
+                
+                for (field_name, field_expr) in fields {
+                    let field_index = struct_def.iter().position(|(n, _)| n == field_name)
+                        .expect(&format!("Field '{}' not found in struct '{}'", field_name, name));
+                    let offset = field_index * 8;
+                    
+                    self.gen_expr(field_expr); // rax = field value
+                    self.code.push_str("    mov rcx, [rsp]\n"); // rcx = struct pointer
+                    self.code.push_str(&format!("    mov [rcx + {}], rax\n", offset));
+                }
+                
+                // Restore struct pointer to rax
+                self.code.push_str("    pop rax\n");
+            },
+            Expr::FieldAccess { expr, field } => {
+                if let Expr::Identifier(name) = &**expr {
+                    // Extract base pointer directly to avoid moving the struct
+                    let var_info = self.get_var(name).unwrap_or_else(|| panic!("Variable '{}' not defined", name));
+                    if var_info.state == VarState::Moved {
+                        panic!("Security Error: Use of moved variable '{}'", name);
+                    }
+                    if var_info.is_global {
+                        self.code.push_str(&format!("    mov rax, [rel {}]\n", var_info.global_label));
+                    } else {
+                        self.code.push_str(&format!("    mov rax, [rbp - {}]\n", var_info.offset));
+                    }
+                } else {
+                    self.gen_expr(expr); // For complex bases, might cause a move
+                }
+                
+                let mut found_offset = None;
+                for (_, fields) in &self.structs {
+                    if let Some(index) = fields.iter().position(|(n, _)| n == field) {
+                        found_offset = Some(index * 8);
+                        break;
+                    }
+                }
+                
+                let offset = found_offset.expect(&format!("Field '{}' not found in any struct!", field));
+                self.code.push_str(&format!("    mov rax, [rax + {}]\n", offset));
+            },
+            Expr::EnumVariant { enum_name, variant } => {
+                let variants = self.enums.get(enum_name).expect(&format!("Unknown enum '{}'", enum_name));
+                let index = variants.iter().position(|v| v == variant).expect(&format!("Unknown variant '{}' in enum '{}'", variant, enum_name));
+                self.code.push_str(&format!("    mov rax, {}\n", index));
             },
             Expr::Call { name, args } => {
                 for (i, arg) in args.iter().enumerate() {

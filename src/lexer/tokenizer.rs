@@ -56,15 +56,36 @@ impl Lexer {
                 self.position += 1;
                 self.column += 1;
             },
-            ':' => {
+            '.' => {
                 tokens.push(Token {
-                    token_type: TokenType::Colon,
+                    token_type: TokenType::Dot,
                     line: self.line,
                     column: self.column,
                     value: None
                 });
                 self.position += 1;
                 self.column += 1;
+            },
+            ':' => {
+                if self.position + 1 < self.input.len() && self.input[self.position + 1] == ':' {
+                    tokens.push(Token {
+                        token_type: TokenType::DoubleColon,
+                        line: self.line,
+                        column: self.column,
+                        value: None
+                    });
+                    self.position += 2;
+                    self.column += 2;
+                } else {
+                    tokens.push(Token {
+                        token_type: TokenType::Colon,
+                        line: self.line,
+                        column: self.column,
+                        value: None
+                    });
+                    self.position += 1;
+                    self.column += 1;
+                }
             },
             '"' => {
                 self.position += 1;
@@ -382,6 +403,8 @@ impl Lexer {
                 "while" => tokens.push(Token { token_type: TokenType::While, line: self.line, column: start_column, value: None }),
                 "true" => tokens.push(Token { token_type: TokenType::True, line: self.line, column: start_column, value: None }),
                 "false" => tokens.push(Token { token_type: TokenType::False, line: self.line, column: start_column, value: None }),
+                "struct" => tokens.push(Token { token_type: TokenType::Struct, line: self.line, column: start_column, value: None }),
+                "enum" => tokens.push(Token { token_type: TokenType::Enum, line: self.line, column: start_column, value: None }),
                 "print?" => {
                     tokens.push(Token {
                         token_type: TokenType::Print,
