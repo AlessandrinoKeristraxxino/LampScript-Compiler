@@ -16,6 +16,7 @@ pub enum TokenType {
     
     // punctuation
     Semicolon,
+    Dot,
     Colon,
     DoubleQuote,
     Equal,
@@ -28,9 +29,12 @@ pub enum TokenType {
     Asterisk,
     Slash,
     DoubleAsterisk,
-    DoubleSlash,
+    Sqrt,
 
-    Value(u64),
+    // comments
+    SingleComment,
+
+    Value(f64),
 }
 
 #[derive(Debug, Clone)]

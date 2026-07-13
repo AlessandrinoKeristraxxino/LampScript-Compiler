@@ -6,9 +6,24 @@
 use std::mem::discriminant;
 use crate::lexer::token::*;
 
+#[derive(Debug, Clone)]
 pub enum Expr {
-    Number(u64),
+    Number(f64),
     Identifier(String),
+
+    Binary {
+        left: Box<Expr>,
+        op: TokenType,
+        right: Box<Expr>,
+    },
+    Unary {
+        op: TokenType,
+        expr: Box<Expr>,
+    },
+    Root {
+        degree: Option<f64>,
+        expr: Box<Expr>,
+    },
 }
 
 pub enum Stmt {
@@ -44,7 +59,7 @@ impl Parser {
             }
 
             return Token {
-                token_type: TokenType::Value(0),
+                token_type: TokenType::Value(0.0),
                 line: 0,
                 column: 0,
                 value: None,

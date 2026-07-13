@@ -170,7 +170,7 @@ impl Lexer {
             '/' => {
                 if self.position + 1 < self.input.len() && self.input[self.position + 1] == '/' {
                     tokens.push(Token {
-                        token_type: TokenType::DoubleSlash,
+                        token_type: TokenType::SingleComment,
                         line: self.line,
                         column: self.column,
                         value: None
@@ -200,6 +200,25 @@ impl Lexer {
     fn check_keyword(&mut self, tokens: &mut Vec<Token>) {
         let mut keyword = String::new();
         let start_column = self.column;
+
+        if (
+            self.position + 1 < self.input.len() && (
+                self.input[self.position] == 'v' &&
+                self.input[self.position + 1] == '/'
+            )
+        ) {
+            tokens.push(Token {
+                token_type: TokenType::Sqrt,
+                line: self.line,
+                column: self.column,
+                value: None
+            });
+
+            self.position += 2;
+            self.column += 2;
+
+            return;
+        }
 
         if self.input[self.position].is_alphabetic() {
             while (
@@ -268,7 +287,19 @@ impl Lexer {
             self.column += 1;
         }
 
-        if let Ok(value) = number.parse::<u64>() {
+        if self.position < self.input.len() && self.input[self.position] == '.' {
+            number.push(self.input[self.position]);
+            self.position += 1;
+            self.column += 1;
+
+            while self.position < self.input.len() && self.input[self.position].is_numeric() {
+                number.push(self.input[self.position]);
+                self.position += 1;
+                self.column += 1;
+            }
+        }
+
+        if let Ok(value) = number.parse::<f64>() {
             tokens.push(Token {
                 token_type: TokenType::Value(value),
                 line: self.line,

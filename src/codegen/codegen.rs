@@ -69,7 +69,8 @@ impl Codegen {
                 } else {
                     panic!("Errore di compilazione: Variabile '{}' non definita!", name);
                 }
-            }
+            },
+            _ => {}
         }
     }
 
