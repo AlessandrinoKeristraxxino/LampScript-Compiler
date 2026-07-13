@@ -2,7 +2,9 @@
 
 use std::collections::HashMap;
 use crate::parser::ast::{Expr, Stmt, Type};
+use crate::lexer::token::TokenType;
 
+#[derive(Clone)]
 pub struct VarInfo {
     pub offset: i32,
     pub is_mutable: bool,
@@ -11,25 +13,90 @@ pub struct VarInfo {
 
 pub struct Codegen {
     pub code: String,
-    variables: HashMap<String, VarInfo>,
+    scopes: Vec<HashMap<String, VarInfo>>,
     stack_offset: i32,
     strings: Vec<(String, String)>,
     string_counter: usize,
+    label_counter: usize,
 }
 
 impl Codegen {
     pub fn new() -> Self {
         Self {
             code: String::new(),
-            variables: HashMap::new(),
+            scopes: vec![HashMap::new()],
             stack_offset: 0,
             strings: Vec::new(),
             string_counter: 0,
+            label_counter: 0,
         }
+    }
+
+    fn push_scope(&mut self) {
+        self.scopes.push(HashMap::new());
+    }
+
+    fn pop_scope(&mut self) {
+        self.scopes.pop();
+    }
+
+    fn get_var(&self, name: &str) -> Option<&VarInfo> {
+        for scope in self.scopes.iter().rev() {
+            if let Some(var) = scope.get(name) {
+                return Some(var);
+            }
+        }
+        None
     }
 
     fn gen_stmt(&mut self, stmt: &Stmt) {
         match stmt {
+            Stmt::Block(stmts) => {
+                let prev_stack = self.stack_offset;
+                self.push_scope();
+                for s in stmts {
+                    self.gen_stmt(s);
+                }
+                self.pop_scope();
+                self.stack_offset = prev_stack;
+            },
+            Stmt::If { condition, then_branch, else_branch } => {
+                let else_label = format!(".Lif_else_{}", self.label_counter);
+                let end_label = format!(".Lif_end_{}", self.label_counter);
+                self.label_counter += 1;
+
+                self.gen_expr(condition);
+                self.code.push_str("    test rax, rax\n");
+                
+                if else_branch.is_some() {
+                    self.code.push_str(&format!("    je {}\n", else_label));
+                } else {
+                    self.code.push_str(&format!("    je {}\n", end_label));
+                }
+
+                self.gen_stmt(then_branch);
+
+                if let Some(eb) = else_branch {
+                    self.code.push_str(&format!("    jmp {}\n", end_label));
+                    self.code.push_str(&format!("{}:\n", else_label));
+                    self.gen_stmt(eb);
+                }
+                self.code.push_str(&format!("{}:\n", end_label));
+            },
+            Stmt::While { condition, body } => {
+                let start_label = format!(".Lwhile_start_{}", self.label_counter);
+                let end_label = format!(".Lwhile_end_{}", self.label_counter);
+                self.label_counter += 1;
+
+                self.code.push_str(&format!("{}:\n", start_label));
+                self.gen_expr(condition);
+                self.code.push_str("    test rax, rax\n");
+                self.code.push_str(&format!("    je {}\n", end_label));
+
+                self.gen_stmt(body);
+                self.code.push_str(&format!("    jmp {}\n", start_label));
+                self.code.push_str(&format!("{}:\n", end_label));
+            },
             Stmt::Let { name, is_mutable, var_type, value } => {
                 let inferred_type = match var_type {
                     Some(t) => Some(t.clone()),
@@ -42,7 +109,7 @@ impl Codegen {
                                 Some(Type::F64)
                             }
                         },
-                        Expr::Identifier(id) => self.variables.get(id).and_then(|v| v.var_type.clone()),
+                        Expr::Identifier(id) => self.get_var(id).and_then(|v| v.var_type.clone()),
                         _ => Some(Type::U64),
                     }
                 };
@@ -50,17 +117,19 @@ impl Codegen {
                 self.gen_expr(value);
 
                 self.stack_offset += 8;
-                self.variables.insert(name.clone(), VarInfo {
-                    offset: self.stack_offset,
-                    is_mutable: *is_mutable,
-                    var_type: inferred_type,
-                });
+                if let Some(scope) = self.scopes.last_mut() {
+                    scope.insert(name.clone(), VarInfo {
+                        offset: self.stack_offset,
+                        is_mutable: *is_mutable,
+                        var_type: inferred_type,
+                    });
+                }
 
                 let instruction = format!("    mov [rbp - {}], rax\n", self.stack_offset);
                 self.code.push_str(&instruction);
             },
             Stmt::Assign { name, value } => {
-                if let Some(var_info) = self.variables.get(name) {
+                if let Some(var_info) = self.get_var(name) {
                     if !var_info.is_mutable {
                         panic!("Compilation Error: Variable '{}' is not mutable!", name);
                     }
@@ -99,7 +168,7 @@ impl Codegen {
                             match &rest_args[n_args] {
                                 Expr::StringLiteral(_) => Some(Type::String),
                                 Expr::Number(n) => if n.fract() == 0.0 { Some(Type::U64) } else { Some(Type::F64) },
-                                Expr::Identifier(name) => self.variables.get(name).and_then(|v| v.var_type.clone()),
+                                Expr::Identifier(name) => self.get_var(name).and_then(|v| v.var_type.clone()),
                                 _ => Some(Type::U64)
                             }
                         } else {
@@ -173,14 +242,69 @@ impl Codegen {
                 self.code.push_str(&instruction);
             },
             Expr::Identifier(name) => {
-                if let Some(var_info) = self.variables.get(name) {
+                if let Some(var_info) = self.get_var(name) {
                     let instruction = format!("    mov rax, [rbp - {}]\n", var_info.offset);
                     self.code.push_str(&instruction);
                 } else {
                     panic!("Compilation Error: Variable '{}' not defined!", name);
                 }
             },
-            _ => {}
+            Expr::Binary { left, op, right } => {
+                self.gen_expr(left);
+                self.code.push_str("    push rax\n");
+                self.gen_expr(right);
+                self.code.push_str("    pop rcx\n");
+                // rcx = left, rax = right
+                match op {
+                    TokenType::Plus => self.code.push_str("    add rax, rcx\n"),
+                    TokenType::Minus => {
+                        self.code.push_str("    sub rcx, rax\n");
+                        self.code.push_str("    mov rax, rcx\n");
+                    },
+                    TokenType::Asterisk => {
+                        self.code.push_str("    imul rax, rcx\n");
+                    },
+                    TokenType::Slash => {
+                        self.code.push_str("    xchg rax, rcx\n");
+                        self.code.push_str("    cqo\n");
+                        self.code.push_str("    idiv rcx\n"); // rax = left / right
+                    },
+                    TokenType::EqualEqual => {
+                        self.code.push_str("    cmp rcx, rax\n    sete al\n    movzx rax, al\n");
+                    },
+                    TokenType::NotEqual => {
+                        self.code.push_str("    cmp rcx, rax\n    setne al\n    movzx rax, al\n");
+                    },
+                    TokenType::LessThan => {
+                        self.code.push_str("    cmp rcx, rax\n    setl al\n    movzx rax, al\n");
+                    },
+                    TokenType::GreaterThan => {
+                        self.code.push_str("    cmp rcx, rax\n    setg al\n    movzx rax, al\n");
+                    },
+                    TokenType::LessThanOrEqual => {
+                        self.code.push_str("    cmp rcx, rax\n    setle al\n    movzx rax, al\n");
+                    },
+                    TokenType::GreaterThanOrEqual => {
+                        self.code.push_str("    cmp rcx, rax\n    setge al\n    movzx rax, al\n");
+                    },
+                    TokenType::And => {
+                        self.code.push_str("    test rcx, rcx\n    setne cl\n    test rax, rax\n    setne al\n    and rax, rcx\n    movzx rax, al\n");
+                    },
+                    TokenType::Or => {
+                        self.code.push_str("    test rcx, rcx\n    setne cl\n    test rax, rax\n    setne al\n    or rax, rcx\n    movzx rax, al\n");
+                    },
+                    TokenType::NotBoth => {
+                        self.code.push_str("    cmp rcx, rax\n    setne r8b\n");
+                        self.code.push_str("    test rcx, rcx\n    sete r9b\n");
+                        self.code.push_str("    test rax, rax\n    sete r10b\n");
+                        self.code.push_str("    and r8b, r9b\n    and r8b, r10b\n    movzx rax, r8b\n");
+                    },
+                    _ => panic!("Unsupported binary operator: {:?}", op)
+                }
+            },
+            Expr::Unary { op: _, expr: _ } | Expr::Root { degree: _, expr: _ } => {
+                panic!("Unary and Root compilation not fully implemented!");
+            }
         }
     }
 

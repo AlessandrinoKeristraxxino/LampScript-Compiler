@@ -90,13 +90,139 @@ impl Lexer {
                 }
             },
             '=' => {
+                if self.position + 1 < self.input.len() && self.input[self.position + 1] == '=' {
+                    tokens.push(Token {
+                        token_type: TokenType::EqualEqual,
+                        line: self.line,
+                        column: self.column,
+                        value: None
+                    });
+                    self.position += 2;
+                    self.column += 2;
+                } else {
+                    tokens.push(Token {
+                        token_type: TokenType::Equal,
+                        line: self.line,
+                        column: self.column,
+                        value: None
+                    });
+                    self.position += 1;
+                    self.column += 1;
+                }
+            },
+            '!' => {
+                if self.position + 1 < self.input.len() && self.input[self.position + 1] == '=' {
+                    tokens.push(Token {
+                        token_type: TokenType::NotEqual,
+                        line: self.line,
+                        column: self.column,
+                        value: None
+                    });
+                    self.position += 2;
+                    self.column += 2;
+                } else if self.position + 1 < self.input.len() && self.input[self.position + 1] == '!' {
+                    tokens.push(Token {
+                        token_type: TokenType::NotBoth,
+                        line: self.line,
+                        column: self.column,
+                        value: None
+                    });
+                    self.position += 2;
+                    self.column += 2;
+                } else {
+                    self.position += 1;
+                    self.column += 1;
+                }
+            },
+            '<' => {
+                if self.position + 1 < self.input.len() && self.input[self.position + 1] == '=' {
+                    tokens.push(Token {
+                        token_type: TokenType::LessThanOrEqual,
+                        line: self.line,
+                        column: self.column,
+                        value: None
+                    });
+                    self.position += 2;
+                    self.column += 2;
+                } else {
+                    tokens.push(Token {
+                        token_type: TokenType::LessThan,
+                        line: self.line,
+                        column: self.column,
+                        value: None
+                    });
+                    self.position += 1;
+                    self.column += 1;
+                }
+            },
+            '>' => {
+                if self.position + 1 < self.input.len() && self.input[self.position + 1] == '=' {
+                    tokens.push(Token {
+                        token_type: TokenType::GreaterThanOrEqual,
+                        line: self.line,
+                        column: self.column,
+                        value: None
+                    });
+                    self.position += 2;
+                    self.column += 2;
+                } else {
+                    tokens.push(Token {
+                        token_type: TokenType::GreaterThan,
+                        line: self.line,
+                        column: self.column,
+                        value: None
+                    });
+                    self.position += 1;
+                    self.column += 1;
+                }
+            },
+            '&' => {
+                if self.position + 1 < self.input.len() && self.input[self.position + 1] == '&' {
+                    tokens.push(Token {
+                        token_type: TokenType::And,
+                        line: self.line,
+                        column: self.column,
+                        value: None
+                    });
+                    self.position += 2;
+                    self.column += 2;
+                } else {
+                    self.position += 1;
+                    self.column += 1;
+                }
+            },
+            '|' => {
+                if self.position + 1 < self.input.len() && self.input[self.position + 1] == '|' {
+                    tokens.push(Token {
+                        token_type: TokenType::Or,
+                        line: self.line,
+                        column: self.column,
+                        value: None
+                    });
+                    self.position += 2;
+                    self.column += 2;
+                } else {
+                    self.position += 1;
+                    self.column += 1;
+                }
+            },
+            '{' => {
                 tokens.push(Token {
-                    token_type: TokenType::Equal,
+                    token_type: TokenType::LBrace,
                     line: self.line,
                     column: self.column,
                     value: None
                 });
-
+                self.position += 1;
+                self.column += 1;
+            },
+            '}' => {
+                tokens.push(Token {
+                    token_type: TokenType::RBrace,
+                    line: self.line,
+                    column: self.column,
+                    value: None
+                });
                 self.position += 1;
                 self.column += 1;
             },
@@ -168,15 +294,12 @@ impl Lexer {
             },
             '/' => {
                 if self.position + 1 < self.input.len() && self.input[self.position + 1] == '/' {
-                    tokens.push(Token {
-                        token_type: TokenType::SingleComment,
-                        line: self.line,
-                        column: self.column,
-                        value: None
-                    });
-
                     self.position += 2;
                     self.column += 2;
+                    while self.position < self.input.len() && self.input[self.position] != '\n' {
+                        self.position += 1;
+                        self.column += 1;
+                    }
                 } else {
                     tokens.push(Token {
                         token_type: TokenType::Slash,
@@ -232,6 +355,11 @@ impl Lexer {
             }
 
             match keyword.as_str() {
+                "if" => tokens.push(Token { token_type: TokenType::If, line: self.line, column: start_column, value: None }),
+                "else" => tokens.push(Token { token_type: TokenType::Else, line: self.line, column: start_column, value: None }),
+                "while" => tokens.push(Token { token_type: TokenType::While, line: self.line, column: start_column, value: None }),
+                "true" => tokens.push(Token { token_type: TokenType::True, line: self.line, column: start_column, value: None }),
+                "false" => tokens.push(Token { token_type: TokenType::False, line: self.line, column: start_column, value: None }),
                 "print?" => {
                     tokens.push(Token {
                         token_type: TokenType::Print,

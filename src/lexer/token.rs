@@ -8,6 +8,10 @@ pub enum TokenType {
     Print,
     Println,
     
+    // control flow
+    If, Else, While,
+    True, False,
+    
     // variabili
     Let,
     Identifier(String),
@@ -29,6 +33,8 @@ pub enum TokenType {
     Equal,
     LParen,
     RParen,
+    LBrace,
+    RBrace,
 
     // operators
     Plus,
@@ -37,6 +43,15 @@ pub enum TokenType {
     Slash,
     DoubleAsterisk,
     Sqrt,
+    EqualEqual,
+    NotEqual,
+    LessThan,
+    GreaterThan,
+    LessThanOrEqual,
+    GreaterThanOrEqual,
+    And,
+    Or,
+    NotBoth, // !!
 
     // comments
     SingleComment,

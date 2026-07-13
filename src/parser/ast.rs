@@ -44,6 +44,16 @@ pub enum Stmt {
     },
     Print(Vec<Expr>),
     Println(Vec<Expr>),
+    If {
+        condition: Expr,
+        then_branch: Box<Stmt>,
+        else_branch: Option<Box<Stmt>>,
+    },
+    While {
+        condition: Expr,
+        body: Box<Stmt>,
+    },
+    Block(Vec<Stmt>),
 }
 
 #[derive(Debug, PartialEq)]
@@ -129,30 +139,100 @@ impl Parser {
     }
 
     fn parse_expression(&mut self) -> Expr {
-        let current_token = self.get_current_token();
+        self.parse_logical_or()
+    }
 
+    fn parse_logical_or(&mut self) -> Expr {
+        let mut expr = self.parse_logical_and();
+        while matches!(self.get_current_token().token_type, TokenType::Or) {
+            let op = self.get_current_token().token_type.clone();
+            self.advance();
+            let right = self.parse_logical_and();
+            expr = Expr::Binary { left: Box::new(expr), op, right: Box::new(right) };
+        }
+        expr
+    }
+
+    fn parse_logical_and(&mut self) -> Expr {
+        let mut expr = self.parse_not_both();
+        while matches!(self.get_current_token().token_type, TokenType::And) {
+            let op = self.get_current_token().token_type.clone();
+            self.advance();
+            let right = self.parse_not_both();
+            expr = Expr::Binary { left: Box::new(expr), op, right: Box::new(right) };
+        }
+        expr
+    }
+
+    fn parse_not_both(&mut self) -> Expr {
+        let mut expr = self.parse_equality();
+        while matches!(self.get_current_token().token_type, TokenType::NotBoth) {
+            let op = self.get_current_token().token_type.clone();
+            self.advance();
+            let right = self.parse_equality();
+            expr = Expr::Binary { left: Box::new(expr), op, right: Box::new(right) };
+        }
+        expr
+    }
+
+    fn parse_equality(&mut self) -> Expr {
+        let mut expr = self.parse_comparison();
+        while matches!(self.get_current_token().token_type, TokenType::EqualEqual | TokenType::NotEqual) {
+            let op = self.get_current_token().token_type.clone();
+            self.advance();
+            let right = self.parse_comparison();
+            expr = Expr::Binary { left: Box::new(expr), op, right: Box::new(right) };
+        }
+        expr
+    }
+
+    fn parse_comparison(&mut self) -> Expr {
+        let mut expr = self.parse_term();
+        while matches!(self.get_current_token().token_type, TokenType::LessThan | TokenType::GreaterThan | TokenType::LessThanOrEqual | TokenType::GreaterThanOrEqual) {
+            let op = self.get_current_token().token_type.clone();
+            self.advance();
+            let right = self.parse_term();
+            expr = Expr::Binary { left: Box::new(expr), op, right: Box::new(right) };
+        }
+        expr
+    }
+
+    fn parse_term(&mut self) -> Expr {
+        let mut expr = self.parse_factor();
+        while matches!(self.get_current_token().token_type, TokenType::Plus | TokenType::Minus) {
+            let op = self.get_current_token().token_type.clone();
+            self.advance();
+            let right = self.parse_factor();
+            expr = Expr::Binary { left: Box::new(expr), op, right: Box::new(right) };
+        }
+        expr
+    }
+
+    fn parse_factor(&mut self) -> Expr {
+        let mut expr = self.parse_primary();
+        while matches!(self.get_current_token().token_type, TokenType::Asterisk | TokenType::Slash) {
+            let op = self.get_current_token().token_type.clone();
+            self.advance();
+            let right = self.parse_primary();
+            expr = Expr::Binary { left: Box::new(expr), op, right: Box::new(right) };
+        }
+        expr
+    }
+
+    fn parse_primary(&mut self) -> Expr {
+        let current_token = self.get_current_token();
         match &current_token.token_type {
             TokenType::Value(value) => {
                 self.advance();
-
-                if matches!(self.get_current_token().token_type, TokenType::Sqrt) {
-                    self.advance();
-                    let expr = self.parse_expression();
-                    Expr::Root {
-                        degree: Some(*value),
-                        expr: Box::new(expr),
-                    }
-                } else {
-                    Expr::Number(*value)
-                }
+                Expr::Number(*value)
             }
-            TokenType::Sqrt => {
+            TokenType::True => {
                 self.advance();
-                let expr = self.parse_expression();
-                Expr::Root {
-                    degree: None,
-                    expr: Box::new(expr),
-                }
+                Expr::Number(1.0)
+            }
+            TokenType::False => {
+                self.advance();
+                Expr::Number(0.0)
             }
             TokenType::Identifier(name) => {
                 self.advance();
@@ -162,12 +242,21 @@ impl Parser {
                 self.advance();
                 Expr::StringLiteral(text.clone())
             }
+            TokenType::LParen => {
+                self.advance();
+                let expr = self.parse_expression();
+                self.expect_token(TokenType::RParen);
+                expr
+            }
+            TokenType::Sqrt => {
+                self.advance();
+                let expr = self.parse_expression();
+                Expr::Root { degree: None, expr: Box::new(expr) }
+            }
             _ => panic!(
-                "Syntax Error at line {}, column {}.\nThis expression is not supported: {:?}",
-                current_token.line,
-                current_token.column,
-                current_token
-            ),
+                "Syntax Error at line {}, column {}.\nUnexpected expression token: {:?}",
+                current_token.line, current_token.column, current_token
+            )
         }
     }
 
@@ -191,6 +280,42 @@ impl Parser {
         let current_token = self.get_current_token();
 
         match &current_token.token_type {
+            TokenType::LBrace => {
+                self.advance(); // consume '{'
+                let mut stmts = Vec::new();
+                while !matches!(self.get_current_token().token_type, TokenType::RBrace) && self.position < self.tokens.len() {
+                    if let Some(stmt) = self.parse_statement() {
+                        stmts.push(stmt);
+                    } else {
+                        self.advance();
+                    }
+                }
+                self.expect_token(TokenType::RBrace);
+                Some(Stmt::Block(stmts))
+            }
+            TokenType::If => {
+                self.advance();
+                let condition = self.parse_expression();
+                let then_branch = self.parse_statement().expect("Expected statement after if condition");
+                
+                let mut else_branch = None;
+                if matches!(self.get_current_token().token_type, TokenType::Else) {
+                    self.advance();
+                    else_branch = Some(Box::new(self.parse_statement().expect("Expected statement after else")));
+                }
+                
+                Some(Stmt::If {
+                    condition,
+                    then_branch: Box::new(then_branch),
+                    else_branch,
+                })
+            }
+            TokenType::While => {
+                self.advance();
+                let condition = self.parse_expression();
+                let body = self.parse_statement().expect("Expected statement after while condition");
+                Some(Stmt::While { condition, body: Box::new(body) })
+            }
             TokenType::Let => {
                 self.advance();
                 let current_token = self.get_current_token();
